@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  gold-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gold_saas_backend
+    restart: always
+    ports:
+      - "8005:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/gold_saas.db:/app/gold_saas.db
+
+  gold-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gold_saas_frontend
+    restart: always
+    ports:
+      - "5175:80"
+    depends_on:
+      - gold-backend
