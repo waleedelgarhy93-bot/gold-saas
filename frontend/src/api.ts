@@ -1,6 +1,6 @@
 import type { GoldPrices, Invoice, VisionAnalysisResult, User, StaffUser, SubscriberShop, AuditReportData, ShopInfo } from './types';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://waleedelgarhy2.pythonanywhere.com/api';
 
 export const defaultPrices: GoldPrices = {
   sell_24k: 4285,
