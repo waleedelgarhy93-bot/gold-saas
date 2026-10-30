@@ -111,7 +111,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 no-print">
+      <main className="flex-1 no-print pb-16 lg:pb-6 overflow-x-hidden">
         {activeTab === 'pos' && (
           <POSScreen
             prices={prices}

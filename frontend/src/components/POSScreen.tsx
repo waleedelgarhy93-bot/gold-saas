@@ -240,51 +240,51 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       )}
 
       {/* Mode Selector Tabs (Sale vs Buyback) */}
-      <div className="flex items-center justify-between flex-wrap gap-4 bg-slate-900/90 p-2 rounded-2xl border border-slate-800 shadow-lg">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/90 p-2 sm:p-2.5 rounded-2xl border border-slate-800 shadow-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
           <button
             onClick={() => setInvoiceType('sale')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition cursor-pointer ${
+            className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'sale'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-500/25'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <ShoppingBag className="w-4 h-4" />
-            <span>فاتورة بيع للزبون (ذهب جديد)</span>
+            <ShoppingBag className="w-4 h-4 shrink-0" />
+            <span>بيع ذهب جديد</span>
           </button>
 
           <button
             onClick={() => setInvoiceType('buyback')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition cursor-pointer ${
+            className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'buyback'
                 ? 'bg-gradient-to-r from-rose-500 to-rose-600 text-white shadow-lg shadow-rose-500/25'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <ArrowDownLeft className="w-4 h-4" />
-            <span>شراء ذهب مستعمل / كسر من الزبون</span>
+            <ArrowDownLeft className="w-4 h-4 shrink-0" />
+            <span>شراء كسر / مستعمل</span>
           </button>
         </div>
 
         {/* AI Quick Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => onOpenAIScanner('id')}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer"
+            className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer"
             title="التقاط بطاقة الرقم القومي بكاميرا الموبايل أو الكاشير"
           >
-            <Camera className="w-4 h-4 text-amber-400" />
-            <span>مسح بطاقة الهوية بالـ AI</span>
+            <Camera className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>مسح الهوية</span>
           </button>
 
           <button
             onClick={() => onOpenAIScanner('bullion')}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer"
+            className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-2 rounded-xl text-xs font-medium transition cursor-pointer"
             title="فحص كارت السبيكة (BTC, لازوردي) وقراءة السيريال والوزن"
           >
-            <Sparkles className="w-4 h-4 text-amber-400" />
-            <span>فحص كارت سبيكة / دمغة</span>
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>فحص سبيكة</span>
           </button>
         </div>
       </div>
