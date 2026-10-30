@@ -12,6 +12,7 @@ import { AIScannerModal } from './components/AIScannerModal';
 import { PriceModal } from './components/PriceModal';
 import { ThermalReceipt } from './components/ThermalReceipt';
 import { LoginScreen } from './components/LoginScreen';
+import { MarketingLanding } from './components/MarketingLanding';
 
 export const App: React.FC = () => {
   // Current authenticated user (null = show login)
@@ -20,6 +21,14 @@ export const App: React.FC = () => {
     return saved ? JSON.parse(saved) : null;
   });
 
+  // View mode when not logged in: 'login' | 'landing' (defaults to 'login' as primary)
+  const [unauthView, setUnauthView] = useState<'login' | 'landing'>(() => {
+    // If URL has ?landing or #landing open marketing page directly
+    if (typeof window !== 'undefined' && (window.location.search.includes('landing') || window.location.hash.includes('landing'))) {
+      return 'landing';
+    }
+    return 'login';
+  });
   const [shopInfo, setShopInfo] = useState<ShopInfo | null>(null);
   const [prices, setPrices] = useState<GoldPrices>(defaultPrices);
   const [activeTab, setActiveTab] = useState<'pos' | 'invoices' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings'>('pos');
@@ -82,9 +91,17 @@ export const App: React.FC = () => {
     }
   };
 
-  // If not logged in, render the Login Screen
+  // If not logged in, render the Login Screen or Marketing Landing
   if (!currentUser) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    if (unauthView === 'landing') {
+      return <MarketingLanding onGoToLogin={() => setUnauthView('login')} />;
+    }
+    return (
+      <LoginScreen 
+        onLoginSuccess={handleLoginSuccess} 
+        onGoToLanding={() => setUnauthView('landing')} 
+      />
+    );
   }
 
   const currentShopName = shopInfo?.name || currentUser.shop_name || 'مجوهرات الأمانة الذهبية';

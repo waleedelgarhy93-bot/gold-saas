@@ -5,9 +5,10 @@ import { Coins, Lock, User as UserIcon, AlertCircle, ArrowLeft } from 'lucide-re
 
 interface LoginScreenProps {
   onLoginSuccess: (user: User) => void;
+  onGoToLanding?: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onGoToLanding }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -101,8 +102,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           </button>
         </form>
 
-        <div className="text-center text-[11px] text-slate-500 pt-2 border-t border-slate-800">
-          نظام سحابي آمن ومشفر لتجارة الصاغة والمجوهرات
+        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800">
+          <span>نظام سحابي آمن ومشفر للصاغة</span>
+          {onGoToLanding && (
+            <button
+              type="button"
+              onClick={onGoToLanding}
+              className="text-amber-400 hover:text-amber-300 font-medium cursor-pointer transition hover:underline"
+            >
+              صفحة مميزات النظام والاشتراك ←
+            </button>
+          )}
         </div>
       </div>
     </div>
