@@ -137,7 +137,18 @@ export const App: React.FC = () => {
         {activeTab === 'settings' && currentUser.role === 'shop_admin' && (
           <ShopSettingsView
             currentUser={currentUser}
-            onShopUpdated={(updated) => setShopInfo(updated)}
+            onShopUpdated={(updated) => {
+              setShopInfo(updated);
+              if (currentUser && currentUser.role === 'shop_admin') {
+                const updatedUser: User = {
+                  ...currentUser,
+                  name: `${updated.owner_name} (صاحب المحل)`,
+                  shop_name: updated.name
+                };
+                setCurrentUser(updatedUser);
+                localStorage.setItem('gold_user', JSON.stringify(updatedUser));
+              }
+            }}
           />
         )}
 

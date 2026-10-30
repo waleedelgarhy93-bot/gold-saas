@@ -94,6 +94,12 @@ def shop_settings():
         shop.address = data.get("address", shop.address)
         shop.commercial_record = data.get("commercial_record", shop.commercial_record)
         shop.tax_number = data.get("tax_number", shop.tax_number)
+
+        # Update owner user name as well
+        owner_user = db.query(User).filter(User.shop_id == shop.id, User.role == "shop_admin").first()
+        if owner_user:
+            owner_user.name = f"{shop.owner_name} (صاحب المحل)"
+
         db.commit()
         db.refresh(shop)
 
