@@ -150,34 +150,49 @@ def init_db():
             db.commit()
             db.refresh(shop)
 
-        # Seed Users (Super Admin, Shop Admin, Cashier)
-        if db.query(User).count() == 0:
-            superadmin = User(
-                shop_id=None,
-                name="أ/ وليد المقدم (سوبر أدمن المنصة)",
-                username="superadmin",
-                password="123",
-                role="super_admin",
-                pin_code="9999"
-            )
-            shop_owner = User(
-                shop_id=shop.id if shop else 1,
-                name="أ/ وليد المقدم (صاحب المحل)",
-                username="admin",
-                password="123",
-                role="shop_admin",
-                pin_code="1111"
-            )
-            cashier = User(
-                shop_id=shop.id if shop else 1,
-                name="محمود المصري (مساعد كاشير)",
-                username="cashier",
-                password="123",
-                role="cashier",
-                pin_code="2222"
-            )
-            db.add_all([superadmin, shop_owner, cashier])
-            db.commit()
+        # Always ensure standard system users exist with correct credentials
+        for u_data in [
+            {
+                "username": "superadmin",
+                "password": "123",
+                "name": "أ/ وليد المقدم (سوبر أدمن المنصة)",
+                "role": "super_admin",
+                "pin_code": "9999",
+                "shop_id": None
+            },
+            {
+                "username": "admin",
+                "password": "123",
+                "name": "أ/ وليد المقدم (صاحب المحل)",
+                "role": "shop_admin",
+                "pin_code": "1111",
+                "shop_id": shop.id if shop else 1
+            },
+            {
+                "username": "cashier",
+                "password": "123",
+                "name": "محمود المصري (مساعد كاشير)",
+                "role": "cashier",
+                "pin_code": "2222",
+                "shop_id": shop.id if shop else 1
+            }
+        ]:
+            existing_u = db.query(User).filter(User.username == u_data["username"]).first()
+            if not existing_u:
+                new_u = User(
+                    username=u_data["username"],
+                    password=u_data["password"],
+                    name=u_data["name"],
+                    role=u_data["role"],
+                    pin_code=u_data["pin_code"],
+                    shop_id=u_data["shop_id"],
+                    is_active=True
+                )
+                db.add(new_u)
+            else:
+                existing_u.password = u_data["password"]
+                existing_u.is_active = True
+        db.commit()
 
         price = db.query(GoldPrice).first()
         if not price:
