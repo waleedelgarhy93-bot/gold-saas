@@ -1,4 +1,8 @@
-import type { GoldPrices, Invoice, VisionAnalysisResult, User, StaffUser, SubscriberShop, AuditReportData, ShopInfo } from './types';
+import type {
+  GoldPrices, Invoice, VisionAnalysisResult, User, StaffUser, SubscriberShop,
+  AuditReportData, ShopInfo, JewelryType, InventoryItem, InventorySummary,
+  CapitalSummary, LivePrices, CustomerRecord, CashTransactionRecord,
+} from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://gold-backend-web-97a37e51.hosted.cumin.dev/api';
 
@@ -306,6 +310,239 @@ export async function adminCreateShopAPI(data: {
   } catch (e) {
     console.warn('Backend adminCreateShopAPI offline:', e);
     return false;
+  }
+}
+
+// ---------- Inventory / Capital / Customers ----------
+async function readError(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    return data.detail || data.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function fetchJewelryTypes(): Promise<JewelryType[]> {
+  try {
+    const res = await fetch(`${API_BASE}/jewelry-types`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend jewelry types offline:', e);
+  }
+  return [];
+}
+
+export async function createJewelryType(name: string): Promise<{ ok: boolean; error?: string; type?: JewelryType }> {
+  try {
+    const res = await fetch(`${API_BASE}/jewelry-types`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, type: data.type };
+    }
+    return { ok: false, error: await readError(res, 'تعذر إضافة النوع') };
+  } catch (e) {
+    console.warn('Error creating jewelry type:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function deleteJewelryType(id: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/jewelry-types/${id}`, { method: 'DELETE' });
+    return res.ok;
+  } catch (e) {
+    console.warn('Error deleting jewelry type:', e);
+    return false;
+  }
+}
+
+export async function fetchInventory(params: {
+  section?: 'new' | 'scrap' | 'all';
+  status?: 'in_stock' | 'sold' | 'all';
+  typeId?: number;
+  q?: string;
+} = {}): Promise<InventoryItem[]> {
+  const search = new URLSearchParams();
+  if (params.section) search.set('section', params.section);
+  if (params.status) search.set('status', params.status);
+  if (params.typeId) search.set('type_id', String(params.typeId));
+  if (params.q) search.set('q', params.q);
+  try {
+    const res = await fetch(`${API_BASE}/inventory?${search.toString()}`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend inventory offline:', e);
+  }
+  return [];
+}
+
+export async function addInventoryItem(data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/inventory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await readError(res, 'تعذر إضافة القطعة') };
+  } catch (e) {
+    console.warn('Error adding inventory item:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function updateInventoryItem(id: number, data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/inventory/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await readError(res, 'تعذر تحديث القطعة') };
+  } catch (e) {
+    console.warn('Error updating inventory item:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function deleteInventoryItem(id: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/inventory/${id}`, { method: 'DELETE' });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await readError(res, 'تعذر حذف القطعة') };
+  } catch (e) {
+    console.warn('Error deleting inventory item:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function fetchInventorySummary(): Promise<InventorySummary | null> {
+  try {
+    const res = await fetch(`${API_BASE}/inventory/summary`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend inventory summary offline:', e);
+  }
+  return null;
+}
+
+export async function fetchCapital(): Promise<CapitalSummary | null> {
+  try {
+    const res = await fetch(`${API_BASE}/capital`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend capital offline:', e);
+  }
+  return null;
+}
+
+export async function updateOpeningCash(openingCash: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/shop/opening-cash`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ opening_cash: openingCash }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.warn('Error updating opening cash:', e);
+    return false;
+  }
+}
+
+export async function fetchCashTransactions(): Promise<CashTransactionRecord[]> {
+  try {
+    const res = await fetch(`${API_BASE}/cash/transactions`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend cash transactions offline:', e);
+  }
+  return [];
+}
+
+export async function addCashTransaction(data: {
+  direction: 'in' | 'out';
+  amount: number;
+  note?: string;
+  category?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/cash/transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await readError(res, 'تعذر تسجيل الحركة') };
+  } catch (e) {
+    console.warn('Error adding cash transaction:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function fetchLivePrices(): Promise<{ ok: boolean; data?: LivePrices; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/prices/live`);
+    if (res.ok) return { ok: true, data: await res.json() };
+    return { ok: false, error: await readError(res, 'تعذر جلب الأسعار اللحظية') };
+  } catch (e) {
+    console.warn('Error fetching live prices:', e);
+    return { ok: false, error: 'تعذر الاتصال بمصدر الأسعار' };
+  }
+}
+
+export async function fetchCustomers(q?: string): Promise<CustomerRecord[]> {
+  try {
+    const suffix = q ? `?q=${encodeURIComponent(q)}` : '';
+    const res = await fetch(`${API_BASE}/customers${suffix}`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Backend customers offline:', e);
+  }
+  return [];
+}
+
+export async function saveCustomer(data: {
+  name: string;
+  phone?: string;
+  national_id?: string;
+  address?: string;
+}): Promise<{ ok: boolean; error?: string; customer?: CustomerRecord }> {
+  try {
+    const res = await fetch(`${API_BASE}/customers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      return { ok: true, customer: result.customer };
+    }
+    return { ok: false, error: await readError(res, 'تعذر حفظ العميل') };
+  } catch (e) {
+    console.warn('Error saving customer:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function payInvoiceAPI(invoiceId: number, amount: number): Promise<{ ok: boolean; error?: string; paid_amount?: number; remaining_amount?: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount }),
+    });
+    if (res.ok) return { ok: true, ...(await res.json()) };
+    return { ok: false, error: await readError(res, 'تعذر تسجيل الدفعة') };
+  } catch (e) {
+    console.warn('Error collecting payment:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
   }
 }
 

@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import type { Invoice } from '../types';
-import { fetchInvoices } from '../api';
-import { Scale, Wallet } from 'lucide-react';
+import type { Invoice, CapitalSummary } from '../types';
+import { fetchInvoices, fetchCapital } from '../api';
+import { Scale, Wallet, Banknote, Package, Coins } from 'lucide-react';
 
 export const DailyRegisterView: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [capital, setCapital] = useState<CapitalSummary | null>(null);
 
   useEffect(() => {
     fetchInvoices().then((data) => {
       setInvoices(data);
     });
+    fetchCapital().then(setCapital);
   }, []);
 
   // Filter today's invoices
@@ -38,6 +40,55 @@ export const DailyRegisterView: React.FC = () => {
           حساب دقيق لميزان الجرامات المعادل لعيار 21 + صافي السيولة النقدية في الدرج
         </p>
       </div>
+
+      {/* End-of-day capital tiles: new gold / scrap gold / cash / receivables */}
+      {capital && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-slate-900/90 p-4 rounded-2xl border border-amber-900/30">
+            <div className="flex items-center gap-2 text-amber-400 text-xs font-bold mb-1">
+              <Package className="w-4 h-4" />
+              <span>ذهب جديد بالمخزن</span>
+            </div>
+            <p className="font-mono font-black text-amber-300 text-lg">
+              {(capital.new_gold.value || 0).toLocaleString()} <span className="text-[10px] font-sans">ج.م</span>
+            </p>
+            <p className="text-[10px] text-slate-500 font-mono">{capital.new_gold.net_weight.toFixed(3)}g • {capital.new_gold.count} قطعة</p>
+          </div>
+
+          <div className="bg-slate-900/90 p-4 rounded-2xl border border-rose-900/30">
+            <div className="flex items-center gap-2 text-rose-400 text-xs font-bold mb-1">
+              <Coins className="w-4 h-4" />
+              <span>الكسر بالمخزن</span>
+            </div>
+            <p className="font-mono font-black text-rose-300 text-lg">
+              {(capital.scrap_gold.value || 0).toLocaleString()} <span className="text-[10px] font-sans">ج.م</span>
+            </p>
+            <p className="text-[10px] text-slate-500 font-mono">{capital.scrap_gold.net_weight.toFixed(3)}g • {capital.scrap_gold.count} قطعة</p>
+          </div>
+
+          <div className="bg-slate-900/90 p-4 rounded-2xl border border-emerald-900/30">
+            <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold mb-1">
+              <Banknote className="w-4 h-4" />
+              <span>النقدية بالدرج</span>
+            </div>
+            <p className={`font-mono font-black text-lg ${capital.cash >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+              {capital.cash.toLocaleString()} <span className="text-[10px] font-sans">ج.م</span>
+            </p>
+            <p className="text-[10px] text-slate-500">رصيد الخزينة الحالي</p>
+          </div>
+
+          <div className="bg-slate-900/90 p-4 rounded-2xl border border-slate-700">
+            <div className="flex items-center gap-2 text-slate-300 text-xs font-bold mb-1">
+              <Wallet className="w-4 h-4" />
+              <span>الباقي عند العملاء</span>
+            </div>
+            <p className="font-mono font-black text-slate-100 text-lg">
+              {capital.receivables.toLocaleString()} <span className="text-[10px] font-sans">ج.م</span>
+            </p>
+            <p className="text-[10px] text-slate-500">مبالغ غير محصّلة</p>
+          </div>
+        </div>
+      )}
 
       {/* 2 Big Cards: Gold Scale vs Cash Drawer */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -21,9 +21,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from database import engine, SessionLocal, init_db, Shop, User, GoldPrice, Invoice, InvoiceItem, Customer
+from database import (
+    engine, SessionLocal, init_db, Shop, User, GoldPrice, Invoice, InvoiceItem,
+    Customer, JewelryType, InventoryItem, CashTransaction,
+)
 from services.gold_math import convert_to_equivalent
 from services.gemini_vision import analyze_image_with_gemini
+from services.inventory_logic import (
+    get_latest_prices, buy_price_for_karat, fetch_live_prices,
+    upsert_customer, apply_invoice_inventory_effects,
+    capital_summary, cash_balance, inventory_item_to_dict,
+    customer_with_stats, ensure_default_types,
+)
 
 # Initialize Database
 init_db()
@@ -114,17 +123,71 @@ class InvoiceItemSchema(BaseModel):
     stamp_vat_per_gram: float = 0.0
     brand: Optional[str] = None
     serial_number: Optional[str] = None
+    inventory_item_id: Optional[int] = None
+    type_id: Optional[int] = None
+    type_name: Optional[str] = None
 
 class CreateInvoiceSchema(BaseModel):
     invoice_type: str = "sale"
+    shop_id: Optional[int] = 1
     customer_name: str = "عميل نقدي"
     customer_national_id: Optional[str] = None
     customer_phone: Optional[str] = None
+    customer_address: Optional[str] = None
     payment_method: str = "cash"
+    paid_amount: Optional[float] = None
     discount: float = 0.0
     notes: Optional[str] = None
     created_by_user_id: Optional[int] = None
     items: List[InvoiceItemSchema]
+
+class JewelryTypeCreate(BaseModel):
+    name: str
+    shop_id: Optional[int] = 1
+
+class InventoryItemCreate(BaseModel):
+    shop_id: Optional[int] = 1
+    type_id: Optional[int] = None
+    type_name: Optional[str] = None
+    section: str = "new"
+    name: Optional[str] = None
+    karat: int = 21
+    gross_weight: float = 0.0
+    stones_weight: float = 0.0
+    purchase_price_per_gram: float = 0.0
+    purchase_total: Optional[float] = None
+    workmanship_per_gram: float = 0.0
+    brand: Optional[str] = None
+    serial_number: Optional[str] = None
+    notes: Optional[str] = None
+    source: str = "purchase"
+    paid_from_cash: bool = False
+
+class InventoryBatchCreate(BaseModel):
+    shop_id: Optional[int] = 1
+    items: List[InventoryItemCreate]
+
+class OpeningCashUpdate(BaseModel):
+    shop_id: Optional[int] = 1
+    opening_cash: float = 0.0
+
+class CashTransactionCreate(BaseModel):
+    shop_id: Optional[int] = 1
+    direction: str = "in"
+    amount: float
+    category: str = "adjustment"
+    note: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+
+class CustomerCreate(BaseModel):
+    shop_id: Optional[int] = 1
+    name: str
+    phone: Optional[str] = None
+    national_id: Optional[str] = None
+    address: Optional[str] = None
+
+class InvoicePaySchema(BaseModel):
+    amount: float
 
 # Unified Login Endpoint
 @app.post("/api/auth/login")
@@ -424,8 +487,20 @@ def create_invoice(data: CreateInvoiceSchema, db: Session = Depends(get_db)):
         ))
         
     final_amount = max(0.0, total_items_price - data.discount)
-    
+
+    shop_id = data.shop_id or 1
+    customer = upsert_customer(
+        db, shop_id, data.customer_name, data.customer_phone,
+        data.customer_national_id, data.customer_address,
+    )
+
+    paid_amount = final_amount if data.paid_amount is None else float(data.paid_amount)
+    paid_amount = round(max(0.0, min(paid_amount, final_amount)), 2)
+    remaining_amount = round(final_amount - paid_amount, 2)
+
     invoice = Invoice(
+        shop_id=shop_id,
+        customer_id=customer.id if customer else None,
         invoice_number=code,
         invoice_type=data.invoice_type,
         customer_name=data.customer_name,
@@ -440,15 +515,45 @@ def create_invoice(data: CreateInvoiceSchema, db: Session = Depends(get_db)):
         total_stamp_vat=round(total_vat, 2),
         discount=round(data.discount, 2),
         final_amount=round(final_amount, 2),
+        paid_amount=paid_amount,
+        remaining_amount=remaining_amount,
         payment_method=data.payment_method,
         notes=data.notes,
         items=db_items
     )
-    
+
     db.add(invoice)
+    db.flush()
+
+    payload_items = [
+        item.model_dump() if hasattr(item, "model_dump") else item.dict()
+        for item in data.items
+    ]
+    apply_invoice_inventory_effects(db, shop_id, invoice, payload_items)
+
     db.commit()
     db.refresh(invoice)
-    return invoice
+    return {
+        "id": invoice.id,
+        "invoice_number": invoice.invoice_number,
+        "invoice_type": invoice.invoice_type,
+        "customer_id": invoice.customer_id,
+        "customer_name": invoice.customer_name,
+        "total_gross_weight": invoice.total_gross_weight,
+        "total_net_weight": invoice.total_net_weight,
+        "equivalent_21k_weight": invoice.equivalent_21k_weight,
+        "total_raw_gold_cost": invoice.total_raw_gold_cost,
+        "total_workmanship": invoice.total_workmanship,
+        "total_stamp_vat": invoice.total_stamp_vat,
+        "discount": invoice.discount,
+        "final_amount": invoice.final_amount,
+        "paid_amount": invoice.paid_amount,
+        "remaining_amount": invoice.remaining_amount,
+        "payment_method": invoice.payment_method,
+        "notes": invoice.notes,
+        "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
+        "items": db_items,
+    }
 
 @app.get("/api/invoices")
 def list_invoices(limit: int = 50, invoice_type: Optional[str] = None, db: Session = Depends(get_db)):
@@ -456,6 +561,333 @@ def list_invoices(limit: int = 50, invoice_type: Optional[str] = None, db: Sessi
     if invoice_type:
         query = query.filter(Invoice.invoice_type == invoice_type)
     return query.limit(limit).all()
+
+# ---------- Jewelry Types ----------
+def _resolve_type(db, shop_id, type_id, type_name):
+    if type_id:
+        found = db.query(JewelryType).filter(JewelryType.id == int(type_id)).first()
+        if found:
+            return found.id, found.name
+    if type_name:
+        found = (
+            db.query(JewelryType)
+            .filter(JewelryType.shop_id == shop_id, JewelryType.name == type_name)
+            .first()
+        )
+        if not found:
+            found = JewelryType(shop_id=shop_id, name=type_name)
+            db.add(found)
+            db.flush()
+        return found.id, found.name
+    return None, None
+
+@app.get("/api/jewelry-types")
+def list_jewelry_types(shop_id: int = 1, db: Session = Depends(get_db)):
+    ensure_default_types(db, shop_id)
+    db.commit()
+    types = (
+        db.query(JewelryType)
+        .filter(JewelryType.shop_id == shop_id)
+        .order_by(JewelryType.id.asc())
+        .all()
+    )
+    counts = {}
+    for item in db.query(InventoryItem).filter(
+        InventoryItem.shop_id == shop_id, InventoryItem.status == "in_stock"
+    ).all():
+        if item.type_id:
+            counts[item.type_id] = counts.get(item.type_id, 0) + 1
+    return [{"id": t.id, "name": t.name, "items_count": counts.get(t.id, 0)} for t in types]
+
+@app.post("/api/jewelry-types")
+def create_jewelry_type(data: JewelryTypeCreate, db: Session = Depends(get_db)):
+    shop_id = data.shop_id or 1
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اكتب اسم النوع")
+    existing = (
+        db.query(JewelryType)
+        .filter(JewelryType.shop_id == shop_id, JewelryType.name == name)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="هذا النوع موجود بالفعل")
+    new_type = JewelryType(shop_id=shop_id, name=name)
+    db.add(new_type)
+    db.commit()
+    db.refresh(new_type)
+    return {"message": "تم إضافة النوع بنجاح", "type": {"id": new_type.id, "name": new_type.name}}
+
+@app.delete("/api/jewelry-types/{type_id}")
+def delete_jewelry_type(type_id: int, db: Session = Depends(get_db)):
+    found = db.query(JewelryType).filter(JewelryType.id == type_id).first()
+    if not found:
+        raise HTTPException(status_code=404, detail="النوع غير موجود")
+    db.query(InventoryItem).filter(InventoryItem.type_id == type_id).update(
+        {InventoryItem.type_id: None}, synchronize_session=False
+    )
+    db.delete(found)
+    db.commit()
+    return {"message": "تم حذف النوع"}
+
+# ---------- Inventory ----------
+def _build_inventory_item(db, shop_id, raw: InventoryItemCreate):
+    gross = float(raw.gross_weight or 0)
+    stones = float(raw.stones_weight or 0)
+    net = round(max(0.0, gross - stones), 3)
+    price_g = float(raw.purchase_price_per_gram or 0)
+    purchase_total = raw.purchase_total if raw.purchase_total is not None else round(net * price_g, 2)
+
+    type_id, type_name = _resolve_type(db, shop_id, raw.type_id, (raw.type_name or "").strip() or None)
+    section = raw.section if raw.section in ("new", "scrap") else "new"
+
+    return InventoryItem(
+        shop_id=shop_id,
+        type_id=type_id,
+        type_name=type_name,
+        section=section,
+        status="in_stock",
+        name=(raw.name or type_name or "قطعة مجوهرات").strip(),
+        karat=raw.karat or 21,
+        gross_weight=gross,
+        stones_weight=stones,
+        net_weight=net,
+        purchase_price_per_gram=price_g,
+        purchase_total=purchase_total,
+        workmanship_per_gram=raw.workmanship_per_gram or 0,
+        brand=raw.brand,
+        serial_number=raw.serial_number,
+        notes=raw.notes,
+        source=raw.source or "purchase",
+        paid_from_cash=bool(raw.paid_from_cash),
+    )
+
+@app.get("/api/inventory")
+def list_inventory(
+    shop_id: int = 1,
+    status: str = "in_stock",
+    section: Optional[str] = None,
+    type_id: Optional[int] = None,
+    q: Optional[str] = None,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+):
+    query = db.query(InventoryItem).filter(InventoryItem.shop_id == shop_id)
+    if status and status != "all":
+        query = query.filter(InventoryItem.status == status)
+    if section and section != "all":
+        query = query.filter(InventoryItem.section == section)
+    if type_id:
+        query = query.filter(InventoryItem.type_id == type_id)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (InventoryItem.name.like(like))
+            | (InventoryItem.brand.like(like))
+            | (InventoryItem.serial_number.like(like))
+            | (InventoryItem.type_name.like(like))
+        )
+    items = query.order_by(InventoryItem.id.desc()).limit(limit).all()
+    return [inventory_item_to_dict(i) for i in items]
+
+@app.post("/api/inventory")
+def add_inventory(data: InventoryBatchCreate, db: Session = Depends(get_db)):
+    shop_id = data.shop_id or 1
+    created = []
+    for raw in data.items:
+        item = _build_inventory_item(db, shop_id, raw)
+        db.add(item)
+        created.append(item)
+    db.commit()
+    for item in created:
+        db.refresh(item)
+    return {
+        "message": f"تمت إضافة {len(created)} قطعة للمخزن",
+        "items": [inventory_item_to_dict(i) for i in created],
+    }
+
+@app.put("/api/inventory/{item_id}")
+def update_inventory(item_id: int, data: dict, db: Session = Depends(get_db)):
+    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="القطعة غير موجودة")
+    if item.status == "sold":
+        raise HTTPException(status_code=400, detail="لا يمكن تعديل قطعة تم بيعها")
+
+    for field in ("name", "brand", "serial_number", "notes"):
+        if field in data:
+            setattr(item, field, data[field])
+    if "karat" in data:
+        item.karat = int(data["karat"])
+    if "gross_weight" in data:
+        item.gross_weight = float(data["gross_weight"] or 0)
+    if "stones_weight" in data:
+        item.stones_weight = float(data["stones_weight"] or 0)
+    if "purchase_price_per_gram" in data:
+        item.purchase_price_per_gram = float(data["purchase_price_per_gram"] or 0)
+    if "workmanship_per_gram" in data:
+        item.workmanship_per_gram = float(data["workmanship_per_gram"] or 0)
+    if data.get("section") in ("new", "scrap"):
+        item.section = data["section"]
+    if "type_id" in data or "type_name" in data:
+        item.type_id, item.type_name = _resolve_type(
+            db, item.shop_id, data.get("type_id"), data.get("type_name")
+        )
+
+    item.net_weight = round(max(0.0, item.gross_weight - item.stones_weight), 3)
+    if data.get("purchase_total") not in (None, ""):
+        item.purchase_total = float(data["purchase_total"])
+    else:
+        item.purchase_total = round(item.net_weight * item.purchase_price_per_gram, 2)
+
+    db.commit()
+    db.refresh(item)
+    return {"message": "تم تحديث القطعة", "item": inventory_item_to_dict(item)}
+
+@app.delete("/api/inventory/{item_id}")
+def delete_inventory(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="القطعة غير موجودة")
+    if item.status == "sold":
+        raise HTTPException(status_code=400, detail="لا يمكن حذف قطعة تم بيعها")
+    db.delete(item)
+    db.commit()
+    return {"message": "تم حذف القطعة من المخزن"}
+
+@app.get("/api/inventory/summary")
+def inventory_summary(shop_id: int = 1, db: Session = Depends(get_db)):
+    result = {}
+    for section in ("new", "scrap"):
+        items = db.query(InventoryItem).filter(
+            InventoryItem.shop_id == shop_id,
+            InventoryItem.section == section,
+            InventoryItem.status == "in_stock",
+        ).all()
+        result[section] = {
+            "count": len(items),
+            "net_weight": round(sum(i.net_weight or 0 for i in items), 3),
+            "karat_weights": {
+                str(k): round(sum(i.net_weight or 0 for i in items if i.karat == k), 3)
+                for k in (24, 21, 18, 14)
+            },
+        }
+    sold = db.query(InventoryItem).filter(
+        InventoryItem.shop_id == shop_id, InventoryItem.status == "sold"
+    ).all()
+    result["sold"] = {
+        "count": len(sold),
+        "net_weight": round(sum(i.net_weight or 0 for i in sold), 3),
+        "sold_value": round(sum(i.sold_price or 0 for i in sold), 2),
+    }
+    return result
+
+# ---------- Capital & Cash ----------
+@app.get("/api/capital")
+def get_capital(shop_id: int = 1, db: Session = Depends(get_db)):
+    return capital_summary(db, shop_id)
+
+@app.put("/api/shop/opening-cash")
+def update_opening_cash(data: OpeningCashUpdate, db: Session = Depends(get_db)):
+    shop_id = data.shop_id or 1
+    shop = db.query(Shop).filter(Shop.id == shop_id).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail="المحل غير موجود")
+    shop.opening_cash = data.opening_cash
+    db.commit()
+    return {
+        "message": "تم تحديث النقدية الافتتاحية",
+        "opening_cash": shop.opening_cash,
+        "cash_balance": cash_balance(db, shop_id),
+    }
+
+@app.get("/api/cash/transactions")
+def list_cash_transactions(shop_id: int = 1, db: Session = Depends(get_db)):
+    rows = (
+        db.query(CashTransaction)
+        .filter(CashTransaction.shop_id == shop_id)
+        .order_by(CashTransaction.id.desc())
+        .limit(200)
+        .all()
+    )
+    return [{
+        "id": t.id,
+        "direction": t.direction,
+        "amount": t.amount,
+        "category": t.category,
+        "note": t.note,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    } for t in rows]
+
+@app.post("/api/cash/transactions")
+def add_cash_transaction(data: CashTransactionCreate, db: Session = Depends(get_db)):
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="المبلغ يجب أن يكون أكبر من صفر")
+    direction = data.direction if data.direction in ("in", "out") else "in"
+    tx = CashTransaction(
+        shop_id=data.shop_id or 1,
+        direction=direction,
+        amount=data.amount,
+        category=data.category,
+        note=data.note,
+        created_by_user_id=data.created_by_user_id,
+    )
+    db.add(tx)
+    db.commit()
+    return {"message": "تم تسجيل الحركة النقدية", "cash_balance": cash_balance(db, data.shop_id or 1)}
+
+# ---------- Live Prices ----------
+@app.get("/api/prices/live")
+def live_gold_prices():
+    try:
+        return fetch_live_prices()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"تعذر جلب الأسعار اللحظية: {exc}")
+
+# ---------- Customers ----------
+@app.get("/api/customers")
+def list_customers(shop_id: int = 1, q: Optional[str] = None, db: Session = Depends(get_db)):
+    query = db.query(Customer).filter(Customer.shop_id == shop_id)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(
+            (Customer.name.like(like)) | (Customer.phone.like(like)) | (Customer.national_id.like(like))
+        )
+    rows = query.order_by(Customer.id.desc()).limit(300).all()
+    return [customer_with_stats(db, c) for c in rows]
+
+@app.post("/api/customers")
+def create_customer(data: CustomerCreate, db: Session = Depends(get_db)):
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم العميل مطلوب")
+    customer = upsert_customer(
+        db, data.shop_id or 1, name, data.phone, data.national_id, data.address
+    )
+    db.commit()
+    db.refresh(customer)
+    return {"message": "تم حفظ العميل", "customer": customer_with_stats(db, customer)}
+
+# ---------- Collect invoice payment ----------
+@app.post("/api/invoices/{invoice_id}/pay")
+def pay_invoice(invoice_id: int, data: InvoicePaySchema, db: Session = Depends(get_db)):
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="الفاتورة غير موجودة")
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="أدخل مبلغاً صحيحاً")
+
+    remaining = float(invoice.remaining_amount or 0.0)
+    applied = min(data.amount, remaining) if remaining > 0 else 0.0
+    invoice.paid_amount = round(float(invoice.paid_amount or 0.0) + applied, 2)
+    invoice.remaining_amount = round(max(0.0, remaining - applied), 2)
+    db.commit()
+    return {
+        "message": "تم تسجيل الدفعة",
+        "id": invoice.id,
+        "paid_amount": invoice.paid_amount,
+        "remaining_amount": invoice.remaining_amount,
+    }
 
 @app.post("/api/vision/analyze")
 async def analyze_image(

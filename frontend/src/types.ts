@@ -48,12 +48,16 @@ export interface POSItem {
   total_item_price: number;
   brand?: string;
   serial_number?: string;
+  inventory_item_id?: number;
+  type_id?: number;
+  type_name?: string;
 }
 
 export interface Invoice {
   id?: number;
   invoice_number: string;
   invoice_type: 'sale' | 'buyback';
+  customer_id?: number | null;
   customer_name: string;
   customer_national_id?: string;
   customer_phone?: string;
@@ -65,10 +69,111 @@ export interface Invoice {
   total_stamp_vat: number;
   discount: number;
   final_amount: number;
+  paid_amount?: number;
+  remaining_amount?: number;
   payment_method: string;
   notes?: string;
   created_at: string;
   items: POSItem[];
+}
+
+export interface JewelryType {
+  id: number;
+  name: string;
+  items_count?: number;
+}
+
+export type InventorySection = 'new' | 'scrap';
+export type InventoryStatus = 'in_stock' | 'sold';
+
+export interface InventoryItem {
+  id: number;
+  shop_id: number;
+  type_id?: number | null;
+  type_name?: string | null;
+  section: InventorySection;
+  status: InventoryStatus;
+  name: string;
+  karat: number;
+  gross_weight: number;
+  stones_weight: number;
+  net_weight: number;
+  purchase_price_per_gram: number;
+  purchase_total: number;
+  workmanship_per_gram: number;
+  brand?: string | null;
+  serial_number?: string | null;
+  notes?: string | null;
+  source: string;
+  paid_from_cash: boolean;
+  source_invoice_id?: number | null;
+  sold_invoice_id?: number | null;
+  sold_price?: number | null;
+  sold_at?: string | null;
+  created_at: string;
+}
+
+export interface InventorySectionStats {
+  count: number;
+  net_weight: number;
+  value?: number;
+  karat_weights: Record<string, number>;
+}
+
+export interface InventorySummary {
+  new: InventorySectionStats;
+  scrap: InventorySectionStats;
+  sold: {
+    count: number;
+    net_weight: number;
+    sold_value: number;
+  };
+}
+
+export interface CapitalSummary {
+  shop_id: number;
+  prices_used: {
+    karat_buy_prices: Record<string, number>;
+    updated_at?: string | null;
+  };
+  new_gold: InventorySectionStats;
+  scrap_gold: InventorySectionStats;
+  cash: number;
+  opening_cash: number;
+  receivables: number;
+  total_capital: number;
+  generated_at: string;
+}
+
+export interface LivePrices {
+  source: string;
+  usd_per_ounce: number;
+  usd_egp: number;
+  market_per_gram: Record<string, number>;
+  fetched_at: string;
+  cached?: boolean;
+}
+
+export interface CustomerRecord {
+  id: number;
+  shop_id: number;
+  name: string;
+  phone?: string | null;
+  national_id?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  invoices_count: number;
+  outstanding: number;
+  created_at?: string;
+}
+
+export interface CashTransactionRecord {
+  id: number;
+  direction: 'in' | 'out';
+  amount: number;
+  category: string;
+  note?: string | null;
+  created_at: string;
 }
 
 export interface VisionAnalysisResult {

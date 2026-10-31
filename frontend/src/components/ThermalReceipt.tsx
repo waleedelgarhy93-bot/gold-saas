@@ -65,7 +65,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
           {invoice.items.map((item, idx) => (
             <tr key={idx} className="border-b border-gray-300">
               <td className="py-1">{item.item_name}</td>
-              <td className="py-1">21</td>
+              <td className="py-1">{item.karat || 21}</td>
               <td className="py-1 font-mono">{item.net_weight.toFixed(2)}g</td>
               <td className="py-1 font-mono font-bold">{item.total_item_price.toLocaleString()}</td>
             </tr>
@@ -95,6 +95,18 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
           <span>المبلغ الإجمالي:</span>
           <span className="font-mono">{invoice.final_amount.toLocaleString()} ج.م</span>
         </div>
+        {(invoice.remaining_amount || 0) > 0 && (
+          <>
+            <div className="flex justify-between text-[10px]">
+              <span>المسدد:</span>
+              <span className="font-mono">{(invoice.paid_amount ?? invoice.final_amount).toLocaleString()} ج.م</span>
+            </div>
+            <div className="flex justify-between text-[10px] font-bold">
+              <span>الباقي:</span>
+              <span className="font-mono">{(invoice.remaining_amount || 0).toLocaleString()} ج.م</span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Legal & Policy Note */}

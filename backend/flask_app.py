@@ -11,9 +11,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from database import engine, SessionLocal, init_db, Shop, User, GoldPrice, Invoice, InvoiceItem, Customer
+from database import (
+    engine, SessionLocal, init_db, Shop, User, GoldPrice, Invoice, InvoiceItem,
+    Customer, JewelryType, InventoryItem, CashTransaction,
+)
 from services.gold_math import convert_to_equivalent
 from services.gemini_vision import analyze_image_with_gemini
+from services.inventory_logic import (
+    get_latest_prices, buy_price_for_karat, fetch_live_prices,
+    upsert_customer, apply_invoice_inventory_effects,
+    capital_summary, cash_balance, inventory_item_to_dict,
+    customer_with_stats, ensure_default_types,
+)
 
 # Initialize SQLite database
 init_db()
@@ -149,6 +158,7 @@ def shop_settings():
                 "tax_number": shop.tax_number,
                 "subscription_plan": shop.subscription_plan,
                 "is_active": shop.is_active,
+                "opening_cash": shop.opening_cash or 0.0,
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })
 
@@ -497,6 +507,9 @@ def invoices_handler():
                     "total_stamp_vat": inv.total_stamp_vat,
                     "discount": inv.discount,
                     "final_amount": inv.final_amount,
+                    "paid_amount": inv.paid_amount or 0.0,
+                    "remaining_amount": inv.remaining_amount or 0.0,
+                    "customer_id": inv.customer_id,
                     "payment_method": inv.payment_method,
                     "notes": inv.notes,
                     "created_at": inv.created_at.isoformat() if inv.created_at else None,
@@ -571,12 +584,28 @@ def invoices_handler():
         discount = float(data.get("discount", 0.0))
         final_amount = max(0.0, total_items_price - discount)
 
+        shop_id = int(data.get("shop_id") or 1)
+        customer_name = data.get("customer_name", "عميل نقدي")
+        customer_phone = data.get("customer_phone")
+        customer_national_id = data.get("customer_national_id")
+        customer = upsert_customer(
+            db, shop_id, customer_name, customer_phone, customer_national_id,
+            data.get("customer_address"),
+        )
+
+        raw_paid = data.get("paid_amount")
+        paid_amount = final_amount if raw_paid is None else float(raw_paid)
+        paid_amount = round(max(0.0, min(paid_amount, final_amount)), 2)
+        remaining_amount = round(final_amount - paid_amount, 2)
+
         invoice = Invoice(
+            shop_id=shop_id,
+            customer_id=customer.id if customer else None,
             invoice_number=code,
             invoice_type=invoice_type,
-            customer_name=data.get("customer_name", "عميل نقدي"),
-            customer_national_id=data.get("customer_national_id"),
-            customer_phone=data.get("customer_phone"),
+            customer_name=customer_name,
+            customer_national_id=customer_national_id,
+            customer_phone=customer_phone,
             created_by_user_id=data.get("created_by_user_id"),
             total_gross_weight=round(total_gross, 3),
             total_net_weight=round(total_net, 3),
@@ -586,12 +615,16 @@ def invoices_handler():
             total_stamp_vat=round(total_vat, 2),
             discount=round(discount, 2),
             final_amount=round(final_amount, 2),
+            paid_amount=paid_amount,
+            remaining_amount=remaining_amount,
             payment_method=data.get("payment_method", "cash"),
             notes=data.get("notes"),
             items=db_items
         )
 
         db.add(invoice)
+        db.flush()
+        apply_invoice_inventory_effects(db, shop_id, invoice, items_in)
         db.commit()
         db.refresh(invoice)
 
@@ -599,11 +632,14 @@ def invoices_handler():
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
             "invoice_type": invoice.invoice_type,
+            "customer_id": invoice.customer_id,
             "customer_name": invoice.customer_name,
             "total_gross_weight": invoice.total_gross_weight,
             "total_net_weight": invoice.total_net_weight,
             "equivalent_21k_weight": invoice.equivalent_21k_weight,
             "final_amount": invoice.final_amount,
+            "paid_amount": invoice.paid_amount,
+            "remaining_amount": invoice.remaining_amount,
             "payment_method": invoice.payment_method,
             "created_at": invoice.created_at.isoformat() if invoice.created_at else None
         })
@@ -706,6 +742,396 @@ def periodic_audit_report():
                 "net_weight_change_eq21_grams": round(net_gold_weight_change, 3),
                 "karat_breakdown": karat_breakdown,
             }
+        })
+    finally:
+        db.close()
+
+# --- Jewelry Types (تصنيفات المخزن) ---
+def _resolve_type(db, shop_id, type_id, type_name):
+    if type_id:
+        found = db.query(JewelryType).filter(JewelryType.id == int(type_id)).first()
+        if found:
+            return found.id, found.name
+    if type_name:
+        found = (
+            db.query(JewelryType)
+            .filter(JewelryType.shop_id == shop_id, JewelryType.name == type_name)
+            .first()
+        )
+        if not found:
+            found = JewelryType(shop_id=shop_id, name=type_name)
+            db.add(found)
+            db.flush()
+        return found.id, found.name
+    return None, None
+
+@app.route("/api/jewelry-types", methods=["GET", "POST"])
+def jewelry_types():
+    db = get_db()
+    try:
+        shop_id = request.args.get("shop_id", 1, type=int)
+        ensure_default_types(db, shop_id)
+        db.commit()
+
+        if request.method == "GET":
+            types = (
+                db.query(JewelryType)
+                .filter(JewelryType.shop_id == shop_id)
+                .order_by(JewelryType.id.asc())
+                .all()
+            )
+            counts = {}
+            for item in db.query(InventoryItem).filter(
+                InventoryItem.shop_id == shop_id, InventoryItem.status == "in_stock"
+            ).all():
+                if item.type_id:
+                    counts[item.type_id] = counts.get(item.type_id, 0) + 1
+            return jsonify([
+                {"id": t.id, "name": t.name, "items_count": counts.get(t.id, 0)}
+                for t in types
+            ])
+
+        data = request.get_json(force=True, silent=True) or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"detail": "اكتب اسم النوع"}), 400
+        existing = (
+            db.query(JewelryType)
+            .filter(JewelryType.shop_id == shop_id, JewelryType.name == name)
+            .first()
+        )
+        if existing:
+            return jsonify({"detail": "هذا النوع موجود بالفعل"}), 400
+        new_type = JewelryType(shop_id=shop_id, name=name)
+        db.add(new_type)
+        db.commit()
+        db.refresh(new_type)
+        return jsonify({"message": "تم إضافة النوع بنجاح", "type": {"id": new_type.id, "name": new_type.name}})
+    finally:
+        db.close()
+
+@app.route("/api/jewelry-types/<int:type_id>", methods=["DELETE"])
+def delete_jewelry_type(type_id):
+    db = get_db()
+    try:
+        found = db.query(JewelryType).filter(JewelryType.id == type_id).first()
+        if not found:
+            return jsonify({"detail": "النوع غير موجود"}), 404
+        name = found.name
+        db.query(InventoryItem).filter(InventoryItem.type_id == type_id).update(
+            {InventoryItem.type_id: None}, synchronize_session=False
+        )
+        db.delete(found)
+        db.commit()
+        return jsonify({"message": f"تم حذف النوع {name}"})
+    finally:
+        db.close()
+
+# --- Inventory (المخزن: جديد / كسر / مباع) ---
+def _build_inventory_item(db, shop_id, raw):
+    gross = float(raw.get("gross_weight", 0) or 0)
+    stones = float(raw.get("stones_weight", 0) or 0)
+    net = round(max(0.0, gross - stones), 3)
+    price_g = float(raw.get("purchase_price_per_gram", 0) or 0)
+    raw_total = raw.get("purchase_total")
+    purchase_total = float(raw_total) if raw_total not in (None, "") else round(net * price_g, 2)
+
+    type_id, type_name = _resolve_type(
+        db, shop_id, raw.get("type_id"), (raw.get("type_name") or "").strip() or None
+    )
+    section = raw.get("section", "new")
+    if section not in ("new", "scrap"):
+        section = "new"
+
+    return InventoryItem(
+        shop_id=shop_id,
+        type_id=type_id,
+        type_name=type_name,
+        section=section,
+        status="in_stock",
+        name=(raw.get("name") or type_name or "قطعة مجوهرات").strip(),
+        karat=int(raw.get("karat", 21) or 21),
+        gross_weight=gross,
+        stones_weight=stones,
+        net_weight=net,
+        purchase_price_per_gram=price_g,
+        purchase_total=purchase_total,
+        workmanship_per_gram=float(raw.get("workmanship_per_gram", 0) or 0),
+        brand=raw.get("brand"),
+        serial_number=raw.get("serial_number"),
+        notes=raw.get("notes"),
+        source=raw.get("source", "purchase"),
+        paid_from_cash=bool(raw.get("paid_from_cash", False)),
+    )
+
+@app.route("/api/inventory", methods=["GET", "POST"])
+def inventory_handler():
+    db = get_db()
+    try:
+        if request.method == "GET":
+            shop_id = request.args.get("shop_id", 1, type=int)
+            status = request.args.get("status", "in_stock")
+            section = request.args.get("section")
+            type_id = request.args.get("type_id", type=int)
+            search = (request.args.get("q") or "").strip()
+            limit = request.args.get("limit", 500, type=int)
+
+            query = db.query(InventoryItem).filter(InventoryItem.shop_id == shop_id)
+            if status and status != "all":
+                query = query.filter(InventoryItem.status == status)
+            if section and section != "all":
+                query = query.filter(InventoryItem.section == section)
+            if type_id:
+                query = query.filter(InventoryItem.type_id == type_id)
+            if search:
+                like = f"%{search}%"
+                query = query.filter(
+                    (InventoryItem.name.like(like))
+                    | (InventoryItem.brand.like(like))
+                    | (InventoryItem.serial_number.like(like))
+                    | (InventoryItem.type_name.like(like))
+                )
+            items = query.order_by(InventoryItem.id.desc()).limit(limit).all()
+            return jsonify([inventory_item_to_dict(i) for i in items])
+
+        data = request.get_json(force=True, silent=True) or {}
+        shop_id = int(data.get("shop_id") or 1)
+        raw_items = data.get("items") if isinstance(data.get("items"), list) else [data]
+        created = []
+        for raw in raw_items:
+            item = _build_inventory_item(db, shop_id, raw)
+            db.add(item)
+            created.append(item)
+        db.commit()
+        for item in created:
+            db.refresh(item)
+        return jsonify({
+            "message": f"تمت إضافة {len(created)} قطعة للمخزن",
+            "items": [inventory_item_to_dict(i) for i in created],
+        })
+    finally:
+        db.close()
+
+@app.route("/api/inventory/<int:item_id>", methods=["PUT", "DELETE"])
+def inventory_item_handler(item_id):
+    db = get_db()
+    try:
+        item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+        if not item:
+            return jsonify({"detail": "القطعة غير موجودة"}), 404
+
+        if request.method == "DELETE":
+            if item.status == "sold":
+                return jsonify({"detail": "لا يمكن حذف قطعة تم بيعها"}), 400
+            db.delete(item)
+            db.commit()
+            return jsonify({"message": "تم حذف القطعة من المخزن"})
+
+        data = request.get_json(force=True, silent=True) or {}
+        if item.status == "sold":
+            return jsonify({"detail": "لا يمكن تعديل قطعة تم بيعها"}), 400
+
+        if "name" in data:
+            item.name = data["name"]
+        if "karat" in data:
+            item.karat = int(data["karat"])
+        if "gross_weight" in data:
+            item.gross_weight = float(data["gross_weight"] or 0)
+        if "stones_weight" in data:
+            item.stones_weight = float(data["stones_weight"] or 0)
+        if "section" in data and data["section"] in ("new", "scrap"):
+            item.section = data["section"]
+        if "purchase_price_per_gram" in data:
+            item.purchase_price_per_gram = float(data["purchase_price_per_gram"] or 0)
+        if "workmanship_per_gram" in data:
+            item.workmanship_per_gram = float(data["workmanship_per_gram"] or 0)
+        if "brand" in data:
+            item.brand = data["brand"]
+        if "serial_number" in data:
+            item.serial_number = data["serial_number"]
+        if "notes" in data:
+            item.notes = data["notes"]
+        if "type_id" in data or "type_name" in data:
+            type_id, type_name = _resolve_type(db, item.shop_id, data.get("type_id"), data.get("type_name"))
+            item.type_id, item.type_name = type_id, type_name
+
+        item.net_weight = round(max(0.0, item.gross_weight - item.stones_weight), 3)
+        if "purchase_total" in data and data["purchase_total"] not in (None, ""):
+            item.purchase_total = float(data["purchase_total"])
+        else:
+            item.purchase_total = round(item.net_weight * item.purchase_price_per_gram, 2)
+
+        db.commit()
+        db.refresh(item)
+        return jsonify({"message": "تم تحديث القطعة", "item": inventory_item_to_dict(item)})
+    finally:
+        db.close()
+
+@app.route("/api/inventory/summary", methods=["GET"])
+def inventory_summary():
+    db = get_db()
+    try:
+        shop_id = request.args.get("shop_id", 1, type=int)
+        result = {}
+        for section in ("new", "scrap"):
+            items = db.query(InventoryItem).filter(
+                InventoryItem.shop_id == shop_id,
+                InventoryItem.section == section,
+                InventoryItem.status == "in_stock",
+            ).all()
+            result[section] = {
+                "count": len(items),
+                "net_weight": round(sum(i.net_weight or 0 for i in items), 3),
+                "karat_weights": {
+                    str(k): round(sum(i.net_weight or 0 for i in items if i.karat == k), 3)
+                    for k in (24, 21, 18, 14)
+                },
+            }
+        sold = db.query(InventoryItem).filter(
+            InventoryItem.shop_id == shop_id, InventoryItem.status == "sold"
+        ).all()
+        result["sold"] = {
+            "count": len(sold),
+            "net_weight": round(sum(i.net_weight or 0 for i in sold), 3),
+            "sold_value": round(sum(i.sold_price or 0 for i in sold), 2),
+        }
+        return jsonify(result)
+    finally:
+        db.close()
+
+# --- Capital (رأس المال) & Cash ---
+@app.route("/api/capital", methods=["GET"])
+def capital():
+    db = get_db()
+    try:
+        shop_id = request.args.get("shop_id", 1, type=int)
+        return jsonify(capital_summary(db, shop_id))
+    finally:
+        db.close()
+
+@app.route("/api/shop/opening-cash", methods=["PUT"])
+def update_opening_cash():
+    db = get_db()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        shop_id = int(data.get("shop_id") or 1)
+        shop = db.query(Shop).filter(Shop.id == shop_id).first()
+        if not shop:
+            return jsonify({"detail": "المحل غير موجود"}), 404
+        shop.opening_cash = float(data.get("opening_cash", shop.opening_cash or 0) or 0)
+        db.commit()
+        return jsonify({"message": "تم تحديث النقدية الافتتاحية", "opening_cash": shop.opening_cash,
+                        "cash_balance": cash_balance(db, shop_id)})
+    finally:
+        db.close()
+
+@app.route("/api/cash/transactions", methods=["GET", "POST"])
+def cash_transactions():
+    db = get_db()
+    try:
+        shop_id = request.args.get("shop_id", 1, type=int)
+        if request.method == "GET":
+            rows = (
+                db.query(CashTransaction)
+                .filter(CashTransaction.shop_id == shop_id)
+                .order_by(CashTransaction.id.desc())
+                .limit(200)
+                .all()
+            )
+            return jsonify([{
+                "id": t.id,
+                "direction": t.direction,
+                "amount": t.amount,
+                "category": t.category,
+                "note": t.note,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            } for t in rows])
+
+        data = request.get_json(force=True, silent=True) or {}
+        amount = float(data.get("amount", 0) or 0)
+        if amount <= 0:
+            return jsonify({"detail": "المبلغ يجب أن يكون أكبر من صفر"}), 400
+        direction = data.get("direction", "in")
+        if direction not in ("in", "out"):
+            direction = "in"
+        tx = CashTransaction(
+            shop_id=int(data.get("shop_id") or 1),
+            direction=direction,
+            amount=amount,
+            category=data.get("category", "adjustment"),
+            note=data.get("note"),
+            created_by_user_id=data.get("created_by_user_id"),
+        )
+        db.add(tx)
+        db.commit()
+        return jsonify({"message": "تم تسجيل الحركة النقدية",
+                        "cash_balance": cash_balance(db, int(data.get("shop_id") or 1))})
+    finally:
+        db.close()
+
+# --- Live Gold Prices (غرفة الذهب) ---
+@app.route("/api/prices/live", methods=["GET"])
+def live_gold_prices():
+    try:
+        return jsonify(fetch_live_prices())
+    except Exception as exc:
+        return jsonify({"detail": f"تعذر جلب الأسعار اللحظية: {exc}"}), 502
+
+# --- Customers (سجل العملاء) ---
+@app.route("/api/customers", methods=["GET", "POST"])
+def customers_handler():
+    db = get_db()
+    try:
+        shop_id = request.args.get("shop_id", 1, type=int)
+        if request.method == "GET":
+            search = (request.args.get("q") or "").strip()
+            query = db.query(Customer).filter(Customer.shop_id == shop_id)
+            if search:
+                like = f"%{search}%"
+                query = query.filter(
+                    (Customer.name.like(like))
+                    | (Customer.phone.like(like))
+                    | (Customer.national_id.like(like))
+                )
+            rows = query.order_by(Customer.id.desc()).limit(300).all()
+            return jsonify([customer_with_stats(db, c) for c in rows])
+
+        data = request.get_json(force=True, silent=True) or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"detail": "اسم العميل مطلوب"}), 400
+        customer = upsert_customer(
+            db, shop_id, name, data.get("phone"), data.get("national_id"), data.get("address")
+        )
+        db.commit()
+        db.refresh(customer)
+        return jsonify({"message": "تم حفظ العميل", "customer": customer_with_stats(db, customer)})
+    finally:
+        db.close()
+
+# --- Collect remaining payment on an invoice ---
+@app.route("/api/invoices/<int:invoice_id>/pay", methods=["POST"])
+def pay_invoice(invoice_id):
+    db = get_db()
+    try:
+        invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if not invoice:
+            return jsonify({"detail": "الفاتورة غير موجودة"}), 404
+        data = request.get_json(force=True, silent=True) or {}
+        amount = float(data.get("amount", 0) or 0)
+        if amount <= 0:
+            return jsonify({"detail": "أدخل مبلغاً صحيحاً"}), 400
+
+        remaining = float(invoice.remaining_amount or 0.0)
+        applied = min(amount, remaining) if remaining > 0 else 0.0
+        invoice.paid_amount = round(float(invoice.paid_amount or 0.0) + applied, 2)
+        invoice.remaining_amount = round(max(0.0, remaining - applied), 2)
+        db.commit()
+        return jsonify({
+            "message": "تم تسجيل الدفعة",
+            "id": invoice.id,
+            "paid_amount": invoice.paid_amount,
+            "remaining_amount": invoice.remaining_amount,
         })
     finally:
         db.close()

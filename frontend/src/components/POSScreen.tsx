@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import type { GoldPrices, POSItem, Invoice } from '../types';
+import type { GoldPrices, POSItem, Invoice, InventoryItem } from '../types';
 import { 
   Plus, Trash2, ShoppingBag, ArrowDownLeft, Camera, Printer, 
-  Send, Sparkles, User, CheckCircle2 
+  Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search
 } from 'lucide-react';
-import { createInvoiceAPI } from '../api';
+import { createInvoiceAPI, fetchInventory } from '../api';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -39,6 +39,19 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   const [stampVat, setStampVat] = useState<string>('25'); // 25 EGP per gram default
 
   const [items, setItems] = useState<POSItem[]>([]);
+
+  // Direct price override per gram (empty = use app prices)
+  const [priceInput, setPriceInput] = useState('');
+  // Paid / remaining
+  const [paidInput, setPaidInput] = useState('');
+
+  // Stock picker
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [pickerSection, setPickerSection] = useState<'new' | 'scrap'>('new');
+  const [pickerItems, setPickerItems] = useState<InventoryItem[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [selectedStock, setSelectedStock] = useState<InventoryItem | null>(null);
 
   // Update customer when scanned from AI
   useEffect(() => {
@@ -81,11 +94,64 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     }
   };
 
+  const defaultUnitPrice = getPricePerGram(karat, invoiceType);
+  const effectiveUnitPrice = priceInput.trim() !== '' ? (parseFloat(priceInput) || 0) : defaultUnitPrice;
+
+  const loadPickerItems = async (section: 'new' | 'scrap', term: string) => {
+    setPickerLoading(true);
+    const data = await fetchInventory({ section, status: 'in_stock', q: term || undefined });
+    setPickerItems(data);
+    setPickerLoading(false);
+  };
+
+  const openStockPicker = async (section: 'new' | 'scrap') => {
+    setPickerSection(section);
+    setPickerSearch('');
+    setIsPickerOpen(true);
+    await loadPickerItems(section, '');
+  };
+
+  const chooseStockItem = (item: InventoryItem) => {
+    setSelectedStock(item);
+    setItemName(item.name);
+    setKarat(item.karat);
+    setGrossWeight(String(item.gross_weight));
+    setStonesWeight(String(item.stones_weight || 0));
+    if (invoiceType === 'sale' && item.workmanship_per_gram) {
+      setWorkmanship(String(item.workmanship_per_gram));
+    }
+    setPriceInput('');
+    setIsPickerOpen(false);
+  };
+
+  const canUseContacts = typeof navigator !== 'undefined' && 'contacts' in navigator;
+
+  const pickPhoneFromContacts = async () => {
+    const nav = navigator as unknown as {
+      contacts?: { select: (props: string[], options?: { multiple?: boolean }) => Promise<Array<{ name?: string[]; tel?: string[] }>> };
+    };
+    if (!nav.contacts?.select) {
+      alert('متصفح الجهاز لا يدعم اختيار جهة اتصال. اكتب الرقم يدوياً.');
+      return;
+    }
+    try {
+      const [contact] = await nav.contacts.select(['name', 'tel'], { multiple: false });
+      if (contact?.tel?.length) {
+        setCustomerPhone(contact.tel[0].replace(/\s+/g, ''));
+      }
+      if (contact?.name?.length && (!customerName || customerName === 'عميل نقدي')) {
+        setCustomerName(contact.name[0]);
+      }
+    } catch {
+      // user cancelled the contact picker
+    }
+  };
+
   const handleAddItem = () => {
     const gross = parseFloat(grossWeight) || 0;
     const stones = parseFloat(stonesWeight) || 0;
     const net = Math.max(0, parseFloat((gross - stones).toFixed(3)));
-    const pricePerGram = getPricePerGram(karat, invoiceType);
+    const pricePerGram = effectiveUnitPrice;
     const work = invoiceType === 'sale' ? (parseFloat(workmanship) || 0) : 0;
     const vat = invoiceType === 'sale' ? (parseFloat(stampVat) || 0) : 0;
 
@@ -105,12 +171,19 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       workmanship_per_gram: work,
       stamp_vat_per_gram: vat,
       total_item_price: totalLine,
+      inventory_item_id: selectedStock?.id,
+      type_id: selectedStock?.type_id || undefined,
+      type_name: selectedStock?.type_name || undefined,
+      brand: selectedStock?.brand || undefined,
+      serial_number: selectedStock?.serial_number || undefined,
     };
 
     setItems([...items, newItem]);
     // Reset weights
     setGrossWeight('');
     setStonesWeight('0.0');
+    setSelectedStock(null);
+    setPriceInput('');
   };
 
   const removeItem = (id: string) => {
@@ -125,6 +198,10 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   const totalStampVat = items.reduce((acc, i) => acc + (i.net_weight * i.stamp_vat_per_gram), 0);
   const subtotal = totalRawGold + totalWorkmanship + totalStampVat;
   const finalTotal = Math.max(0, subtotal - discount);
+  const effectivePaid = paidInput.trim() === ''
+    ? finalTotal
+    : Math.max(0, Math.min(parseFloat(paidInput) || 0, finalTotal));
+  const remainingAmount = Math.max(0, finalTotal - effectivePaid);
 
   // Calculate equivalent in 21k
   const equivalent21k = items.reduce((acc, i) => {
@@ -149,6 +226,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       customer_national_id: customerNationalId || null,
       customer_phone: customerPhone || null,
       payment_method: paymentMethod,
+      paid_amount: paidInput.trim() === '' ? undefined : effectivePaid,
       discount,
       notes,
       items: items.map(i => ({
@@ -161,6 +239,9 @@ export const POSScreen: React.FC<POSScreenProps> = ({
         stamp_vat_per_gram: i.stamp_vat_per_gram,
         brand: i.brand,
         serial_number: i.serial_number,
+        inventory_item_id: i.inventory_item_id,
+        type_id: i.type_id,
+        type_name: i.type_name,
       })),
     };
 
@@ -187,6 +268,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 نوع الفاتورة: ${invoiceType === 'sale' ? 'فاتورة بيع ذهب جديد' : 'فاتورة شراء كسر'}
 إجمالي الوزن الصافي: ${totalNetWeight.toFixed(2)} جرام
 المبلغ الإجمالي: ${finalTotal.toLocaleString()} ج.م
+المسدد: ${effectivePaid.toLocaleString()} ج.م${remainingAmount > 0 ? `\nالباقي: ${remainingAmount.toLocaleString()} ج.م` : ''}
 يسعدنا دائماً خدمتكم.`;
 
     window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -200,6 +282,9 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     setCustomerName('عميل نقدي');
     setCustomerNationalId('');
     setCustomerPhone('');
+    setPaidInput('');
+    setSelectedStock(null);
+    setPriceInput('');
   };
 
   return (
@@ -211,7 +296,12 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <CheckCircle2 className="w-6 h-6 text-emerald-400" />
             <div>
               <p className="font-bold text-sm">تم حفظ الفاتورة بنجاح: {successInvoice.invoice_number}</p>
-              <p className="text-xs text-emerald-300/80">المعادل الذهبي: {successInvoice.equivalent_21k_weight} جرام عيار 21</p>
+              <p className="text-xs text-emerald-300/80">
+                المعادل الذهبي: {successInvoice.equivalent_21k_weight} جرام عيار 21
+                {(successInvoice.remaining_amount || 0) > 0 && (
+                  <span className="text-rose-300"> • الباقي: {(successInvoice.remaining_amount || 0).toLocaleString()} ج.م</span>
+                )}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -243,7 +333,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/90 p-2 sm:p-2.5 rounded-2xl border border-slate-800 shadow-lg">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
           <button
-            onClick={() => setInvoiceType('sale')}
+            onClick={() => { setInvoiceType('sale'); setPriceInput(''); setSelectedStock(null); }}
             className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'sale'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-500/25'
@@ -255,7 +345,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           </button>
 
           <button
-            onClick={() => setInvoiceType('buyback')}
+            onClick={() => { setInvoiceType('buyback'); setPriceInput(''); setSelectedStock(null); }}
             className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'buyback'
                 ? 'bg-gradient-to-r from-rose-500 to-rose-600 text-white shadow-lg shadow-rose-500/25'
@@ -334,13 +424,26 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
               <div>
                 <label className="block text-xs text-slate-400 mb-1">رقم الموبايل (واتساب)</label>
-                <input
-                  type="text"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="010..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="010..."
+                    className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                  {canUseContacts && (
+                    <button
+                      type="button"
+                      onClick={pickPhoneFromContacts}
+                      title="اختيار الرقم من جهات اتصال الهاتف"
+                      className="shrink-0 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-2.5 rounded-xl cursor-pointer"
+                    >
+                      <Phone className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-emerald-400/70 mt-1">العميل بيتسجل تلقائياً في سجل العملاء</p>
               </div>
             </div>
           </div>
@@ -386,6 +489,50 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               </div>
             </div>
 
+            {invoiceType === 'sale' && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-400">اختيار القطعة من المخزن:</span>
+                  <button
+                    type="button"
+                    onClick={() => openStockPicker('new')}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs cursor-pointer"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>من الجديد</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openStockPicker('scrap')}
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs cursor-pointer"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>من الكسر</span>
+                  </button>
+                  {selectedStock && (
+                    <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-300 px-3 py-1.5 rounded-lg text-xs">
+                      <Package className="w-3.5 h-3.5" />
+                      <span className="font-bold">{selectedStock.name}</span>
+                      <span className="font-mono">{selectedStock.net_weight.toFixed(2)}g</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStock(null)}
+                        className="text-amber-200/70 hover:text-white cursor-pointer"
+                        title="إلغاء الاختيار"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {selectedStock && (
+                  <p className="text-[10px] text-emerald-400/80">
+                    سيتم خصم هذه القطعة من المخزن تلقائياً ونقلها إلى المباع عند حفظ الفاتورة.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="sm:col-span-2">
                 <label className="block text-xs text-slate-400 mb-1">اسم ووصف الصنف</label>
@@ -416,9 +563,19 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                 <label className="block text-xs text-slate-400 mb-1">
                   سعر الجرام ({invoiceType === 'sale' ? 'بيع' : 'شراء'})
                 </label>
-                <div className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-amber-400">
-                  {getPricePerGram(karat, invoiceType).toLocaleString()} ج.م
-                </div>
+                <input
+                  type="number"
+                  step="1"
+                  value={priceInput}
+                  onChange={(e) => setPriceInput(e.target.value)}
+                  placeholder={defaultUnitPrice.toFixed(0)}
+                  className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
+                />
+                <p className="text-[10px] mt-1 text-slate-500">
+                  {priceInput.trim() !== ''
+                    ? `سعر معدّل يدوياً (الأساسي ${defaultUnitPrice.toLocaleString()} ج.م)`
+                    : `سعر التطبيق الحالي • يمكن تعديله مباشرة`}
+                </p>
               </div>
             </div>
 
@@ -629,8 +786,8 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             {/* Payment Method */}
             <div className="space-y-1.5">
               <label className="block text-xs text-slate-400">طريقة الدفع</label>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                {['cash', 'visa', 'transfer'].map((m) => (
+              <div className="grid grid-cols-4 gap-2 text-[11px]">
+                {['cash', 'visa', 'transfer', 'credit'].map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -641,10 +798,40 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                         : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    {m === 'cash' ? 'نقدي' : m === 'visa' ? 'فيزا / بطاقة' : 'تحويل بنكي'}
+                    {m === 'cash' ? 'نقدي' : m === 'visa' ? 'فيزا' : m === 'transfer' ? 'تحويل' : 'آجل'}
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Paid / Remaining */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-slate-400">المسدد</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={paidInput}
+                  onChange={(e) => setPaidInput(e.target.value)}
+                  placeholder={finalTotal.toFixed(2)}
+                  className="w-32 bg-slate-900 border border-emerald-500/40 rounded-lg px-2 py-1.5 text-xs font-mono text-right text-emerald-300 focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">الباقي على العميل</span>
+                <span className={`font-mono font-bold text-sm ${remainingAmount > 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                  {remainingAmount.toLocaleString()} ج.م
+                </span>
+              </div>
+              {paidInput.trim() !== '' && (
+                <button
+                  type="button"
+                  onClick={() => setPaidInput('')}
+                  className="text-[10px] text-amber-400/80 hover:text-amber-300 cursor-pointer"
+                >
+                  مسدد بالكامل (إلغاء التقسيط)
+                </button>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -670,6 +857,78 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Stock Picker Modal */}
+      {isPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-amber-900/40 rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-400" />
+                <span>اختيار قطعة من مخزن {pickerSection === 'new' ? 'الجديد' : 'الكسر'}</span>
+              </h2>
+              <button
+                onClick={() => setIsPickerOpen(false)}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={pickerSearch}
+                  onChange={(e) => {
+                    setPickerSearch(e.target.value);
+                    loadPickerItems(pickerSection, e.target.value);
+                  }}
+                  placeholder="بحث بالاسم أو النوع..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl pr-9 pl-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => openStockPicker(pickerSection === 'new' ? 'scrap' : 'new')}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 rounded-xl text-xs cursor-pointer"
+              >
+                {pickerSection === 'new' ? 'الكسر' : 'الجديد'}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {pickerLoading ? (
+                <p className="text-center text-slate-500 text-sm py-8">جارٍ التحميل...</p>
+              ) : pickerItems.length === 0 ? (
+                <p className="text-center text-slate-500 text-sm py-8">لا توجد قطع متاحة في هذا الفرع</p>
+              ) : (
+                pickerItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => chooseStockItem(item)}
+                    className="w-full text-right bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3 transition cursor-pointer"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-100 truncate">{item.name}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {item.type_name || 'بدون نوع'} • عيار {item.karat}
+                        {item.brand ? ` • ${item.brand}` : ''}
+                      </p>
+                    </div>
+                    <div className="text-left shrink-0 font-mono">
+                      <p className="text-sm font-bold text-amber-300">{item.net_weight.toFixed(2)} g</p>
+                      <p className="text-[10px] text-slate-500">صافي</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

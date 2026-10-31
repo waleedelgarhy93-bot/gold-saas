@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import type { GoldPrices, Invoice, VisionAnalysisResult, User, ShopInfo } from './types';
 import { fetchGoldPrices, defaultPrices, fetchShopInfo } from './api';
-import { Navbar } from './components/Navbar';
+import { Navbar, type AppTab } from './components/Navbar';
 import { POSScreen } from './components/POSScreen';
+import { InventoryView } from './components/InventoryView';
 import { InvoicesListView } from './components/InvoicesListView';
 import { PeriodicInventoryAuditView } from './components/PeriodicInventoryAuditView';
 import { StaffManagementView } from './components/StaffManagementView';
@@ -31,7 +32,7 @@ export const App: React.FC = () => {
   });
   const [shopInfo, setShopInfo] = useState<ShopInfo | null>(null);
   const [prices, setPrices] = useState<GoldPrices>(defaultPrices);
-  const [activeTab, setActiveTab] = useState<'pos' | 'invoices' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings'>('pos');
+  const [activeTab, setActiveTab] = useState<AppTab>('pos');
   
   // Modals state
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -137,6 +138,10 @@ export const App: React.FC = () => {
             scannedItem={scannedItem}
             onInvoiceSaved={(inv) => setActiveInvoice(inv)}
           />
+        )}
+
+        {activeTab === 'inventory' && (
+          <InventoryView role={currentUser.role} />
         )}
 
         {activeTab === 'invoices' && (

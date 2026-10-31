@@ -2,15 +2,17 @@ import React, { useState } from 'react';
 import type { GoldPrices, User } from '../types';
 import { 
   Coins, Sparkles, Scale, Receipt, TrendingUp, LogOut, Users, 
-  Shield, Settings, Menu, X 
+  Shield, Settings, Menu, X, Package
 } from 'lucide-react';
+
+export type AppTab = 'pos' | 'invoices' | 'inventory' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings';
 
 interface NavbarProps {
   prices: GoldPrices;
   currentUser: User;
   shopName: string;
-  activeTab: 'pos' | 'invoices' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings';
-  setActiveTab: (tab: 'pos' | 'invoices' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings') => void;
+  activeTab: AppTab;
+  setActiveTab: (tab: AppTab) => void;
   onOpenPriceModal: () => void;
   onLogout: () => void;
 }
@@ -30,7 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isSuperAdmin = currentUser.role === 'super_admin';
   const isShopAdmin = currentUser.role === 'shop_admin';
 
-  const handleTabClick = (tab: 'pos' | 'invoices' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings') => {
+  const handleTabClick = (tab: AppTab) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
@@ -128,6 +130,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Receipt className="w-4 h-4" />
               <span>نقطة البيع (POS)</span>
+            </button>
+
+            <button
+              onClick={() => handleTabClick('inventory')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                  : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              <span>المخزن</span>
             </button>
 
             <button
@@ -277,6 +291,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
+              onClick={() => handleTabClick('inventory')}
+              className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-amber-500 text-slate-950 font-bold'
+                  : 'bg-slate-800/80 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <Package className="w-4 h-4 shrink-0" />
+              <span>المخزن</span>
+            </button>
+
+            <button
               onClick={() => handleTabClick('invoices')}
               className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                 activeTab === 'invoices'
@@ -358,6 +384,16 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
+          onClick={() => handleTabClick('inventory')}
+          className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
+            activeTab === 'inventory' ? 'text-amber-400 font-bold' : 'text-slate-400'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>المخزن</span>
+        </button>
+
+        <button
           onClick={() => handleTabClick('invoices')}
           className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
             activeTab === 'invoices' ? 'text-amber-400 font-bold' : 'text-slate-400'
@@ -386,17 +422,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
-        {isShopAdmin && (
-          <button
-            onClick={() => handleTabClick('settings')}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
-              activeTab === 'settings' ? 'text-amber-400 font-bold' : 'text-slate-400'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>الإعدادات</span>
-          </button>
-        )}
       </div>
     </header>
   );

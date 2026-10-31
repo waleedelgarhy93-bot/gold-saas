@@ -27,6 +27,7 @@ class Shop(Base):
     tax_number = Column(String(50), default="100-245-889")
     subscription_plan = Column(String(50), default="الباقة الماسية (سنوي)")
     is_active = Column(Boolean, default=True)
+    opening_cash = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     users = relationship("User", back_populates="shop")
@@ -69,6 +70,7 @@ class GoldPrice(Base):
 class Customer(Base):
     __tablename__ = "customers"
     id = Column(Integer, primary_key=True, index=True)
+    shop_id = Column(Integer, ForeignKey("shops.id"), default=1, index=True)
     name = Column(String(100), index=True)
     national_id = Column(String(14), index=True, nullable=True)
     phone = Column(String(20), index=True, nullable=True)
@@ -101,6 +103,8 @@ class Invoice(Base):
     total_stamp_vat = Column(Float, default=0.0)
     discount = Column(Float, default=0.0)
     final_amount = Column(Float, default=0.0)
+    paid_amount = Column(Float, default=0.0)
+    remaining_amount = Column(Float, default=0.0)
     
     payment_method = Column(String(20), default="cash")
     notes = Column(Text, nullable=True)
@@ -132,8 +136,95 @@ class InvoiceItem(Base):
     
     invoice = relationship("Invoice", back_populates="items")
 
+class JewelryType(Base):
+    """نوع/تصنيف المجوهرات (غوايش، خواتم، سبائك...) قابل للإضافة من المحل"""
+    __tablename__ = "jewelry_types"
+    id = Column(Integer, primary_key=True, index=True)
+    shop_id = Column(Integer, ForeignKey("shops.id"), default=1, index=True)
+    name = Column(String(80), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class InventoryItem(Base):
+    """قطعة مجوهرات في المخزن (جديد أو كسر) - تُخصم عند البيع وتُنقل للمباع"""
+    __tablename__ = "inventory_items"
+    id = Column(Integer, primary_key=True, index=True)
+    shop_id = Column(Integer, ForeignKey("shops.id"), default=1, index=True)
+    type_id = Column(Integer, ForeignKey("jewelry_types.id"), nullable=True)
+    type_name = Column(String(80), nullable=True)
+
+    section = Column(String(10), default="new", index=True)   # "new" | "scrap"
+    status = Column(String(12), default="in_stock", index=True)  # "in_stock" | "sold"
+    name = Column(String(120))
+
+    karat = Column(Integer, default=21)
+    gross_weight = Column(Float, default=0.0)
+    stones_weight = Column(Float, default=0.0)
+    net_weight = Column(Float, default=0.0)
+
+    purchase_price_per_gram = Column(Float, default=0.0)
+    purchase_total = Column(Float, default=0.0)
+    workmanship_per_gram = Column(Float, default=0.0)
+
+    brand = Column(String(50), nullable=True)
+    serial_number = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    source = Column(String(20), default="purchase")  # "purchase" | "buyback" | "opening"
+    paid_from_cash = Column(Boolean, default=False)
+
+    source_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
+    sold_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
+    sold_price = Column(Float, nullable=True)
+    sold_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class CashTransaction(Base):
+    """حركة نقدية يدوية (إيداع/سحب/مصروف) بخلاف الفواتير"""
+    __tablename__ = "cash_transactions"
+    id = Column(Integer, primary_key=True, index=True)
+    shop_id = Column(Integer, ForeignKey("shops.id"), default=1, index=True)
+    direction = Column(String(3), default="in")  # "in" | "out"
+    amount = Column(Float, default=0.0)
+    category = Column(String(30), default="adjustment")
+    note = Column(String(200), nullable=True)
+    created_by_user_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+DEFAULT_JEWELRY_TYPES = [
+    "غوايش", "خواتم", "سلاسل", "حلقان", "أسورة", "دبل",
+    "سبائك", "جنيهات ذهب", "كسر ومستعمل",
+]
+
+def _column_exists(conn, table, column):
+    rows = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+    return any(r[1] == column for r in rows)
+
+def _migrate_existing_sqlite():
+    """ترحيل آمن لقاعدة SQLite الموجودة بدون فقدان أي بيانات"""
+    with engine.begin() as conn:
+        tables = {r[0] for r in conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+
+        if "shops" in tables and not _column_exists(conn, "shops", "opening_cash"):
+            conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN opening_cash FLOAT DEFAULT 0")
+
+        if "customers" in tables and not _column_exists(conn, "customers", "shop_id"):
+            conn.exec_driver_sql("ALTER TABLE customers ADD COLUMN shop_id INTEGER DEFAULT 1")
+
+        if "invoices" in tables:
+            if not _column_exists(conn, "invoices", "paid_amount"):
+                conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN paid_amount FLOAT DEFAULT 0")
+                # كل الفواتير القديمة كانت بتتحصيل كامل
+                conn.exec_driver_sql("UPDATE invoices SET paid_amount = final_amount")
+            if not _column_exists(conn, "invoices", "remaining_amount"):
+                conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN remaining_amount FLOAT DEFAULT 0")
+                conn.exec_driver_sql("UPDATE invoices SET remaining_amount = 0")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate_existing_sqlite()
     db = SessionLocal()
     try:
         shop = db.query(Shop).first()
@@ -211,5 +302,12 @@ def init_db():
             )
             db.add(price)
             db.commit()
+
+        # Seed default jewelry types for each shop once
+        for sh in db.query(Shop).all():
+            if not db.query(JewelryType).filter(JewelryType.shop_id == sh.id).first():
+                for type_name in DEFAULT_JEWELRY_TYPES:
+                    db.add(JewelryType(shop_id=sh.id, name=type_name))
+        db.commit()
     finally:
         db.close()
