@@ -32,4 +32,6 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: ghcr.io/waleedelgarhy93-bot/gold-saas:latest
+          tags: |
+            ghcr.io/waleedelgarhy93-bot/gold-saas:latest
+            ghcr.io/waleedelgarhy93-bot/gold-saas:v2

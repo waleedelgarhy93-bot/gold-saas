@@ -12,20 +12,30 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("GOLD_DATA_DIR") or _APP_DIR
-os.makedirs(DATA_DIR, exist_ok=True)
-DB_PATH = os.environ.get("GOLD_DB_PATH") or os.path.join(DATA_DIR, "gold_saas.db")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+RAW_DB_URL = os.environ.get("DATABASE_URL")
 
-_LEGACY_DB = os.path.join(_APP_DIR, "gold_saas.db")
-if os.path.abspath(DB_PATH) != os.path.abspath(_LEGACY_DB) and not os.path.exists(DB_PATH) and os.path.exists(_LEGACY_DB):
-    try:
-        shutil.copy2(_LEGACY_DB, DB_PATH)
-        print(f"[db] copied legacy database to {DB_PATH}")
-    except Exception as exc:
-        print(f"[db] legacy copy skipped: {exc}")
+if RAW_DB_URL:
+    # دعم قواعد البيانات السحابية (PostgreSQL / Supabase)
+    if RAW_DB_URL.startswith("postgres://"):
+        RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = RAW_DB_URL
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+else:
+    # دعم SQLite المحلي أو المجلد المثبت في غيمة
+    DATA_DIR = os.environ.get("GOLD_DATA_DIR") or _APP_DIR
+    os.makedirs(DATA_DIR, exist_ok=True)
+    DB_PATH = os.environ.get("GOLD_DB_PATH") or os.path.join(DATA_DIR, "gold_saas.db")
+    DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
+    _LEGACY_DB = os.path.join(_APP_DIR, "gold_saas.db")
+    if os.path.abspath(DB_PATH) != os.path.abspath(_LEGACY_DB) and not os.path.exists(DB_PATH) and os.path.exists(_LEGACY_DB):
+        try:
+            shutil.copy2(_LEGACY_DB, DB_PATH)
+            print(f"[db] copied legacy database to {DB_PATH}")
+        except Exception as exc:
+            print(f"[db] legacy copy skipped: {exc}")
+
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -250,7 +260,8 @@ def init_db():
     for attempt in range(4):
         try:
             Base.metadata.create_all(bind=engine)
-            _migrate_existing_sqlite()
+            if engine.dialect.name == 'sqlite':
+                _migrate_existing_sqlite()
             _seed_defaults()
             return
         except Exception as exc:
