@@ -5,8 +5,8 @@ echo ========================================================
 echo     نظام إدارة محلات الصاغة والذهب الذكي (Gold SaaS)
 echo ========================================================
 echo.
-echo تشغيل الخادم الخلفي (FastAPI Backend)...
-start "Gold SaaS Backend" cmd /k "cd /d ""%BASE_DIR%backend"" && ""%BASE_DIR%backend\venv\Scripts\python.exe"" -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+echo تشغيل الخادم الخلفي (Flask Backend)...
+start "Gold SaaS Backend" cmd /k "cd /d ""%BASE_DIR%backend"" && ""%BASE_DIR%backend\venv\Scripts\python.exe"" flask_app.py"
 
 timeout /t 2 /nobreak > nul
 
@@ -21,5 +21,5 @@ start http://localhost:5174
 echo.
 echo النظام يعمل الآن بنجاح!
 echo الواجهة: http://localhost:5174
-echo السيرفر: http://localhost:8000/docs
+echo السيرفر: http://localhost:8000
 echo ========================================================

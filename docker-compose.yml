@@ -11,8 +11,9 @@ services:
       - "8005:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - GOLD_DATA_DIR=/app/data
     volumes:
-      - ./backend/gold_saas.db:/app/gold_saas.db
+      - ./backend/data:/app/data
 
   gold-frontend:
     build:

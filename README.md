@@ -38,8 +38,8 @@ F:\مشروعات saas\gold\
 ├── run_gold_system.bat       # ملف التشغيل السريع بنقرة واحدة (يشغل الواجهة والسيرفر معاً)
 ├── README.md
 │
-├── backend/                  # خادم البايثون (FastAPI)
-│   ├── main.py               # نقاط الاتصال (APIs)
+├── backend/                  # خادم البايثون (Flask + gunicorn)
+│   ├── flask_app.py          # نقاط الاتصال (APIs)
 │   ├── database.py           # قاعدة بيانات SQLite / PostgreSQL
 │   ├── requirements.txt      # حزم البايثون
 │   └── services/

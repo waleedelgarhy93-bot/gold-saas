@@ -3,6 +3,7 @@ Database models and connection for Gold SaaS
 Supports Multi-tenant shops, real-time prices, sales, buybacks, and inventory balances.
 """
 import os
+import shutil
 import time
 import datetime
 from sqlalchemy import (
@@ -10,8 +11,19 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "gold_saas.db")
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("GOLD_DATA_DIR") or _APP_DIR
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.environ.get("GOLD_DB_PATH") or os.path.join(DATA_DIR, "gold_saas.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+_LEGACY_DB = os.path.join(_APP_DIR, "gold_saas.db")
+if os.path.abspath(DB_PATH) != os.path.abspath(_LEGACY_DB) and not os.path.exists(DB_PATH) and os.path.exists(_LEGACY_DB):
+    try:
+        shutil.copy2(_LEGACY_DB, DB_PATH)
+        print(f"[db] copied legacy database to {DB_PATH}")
+    except Exception as exc:
+        print(f"[db] legacy copy skipped: {exc}")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
