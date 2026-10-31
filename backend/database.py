@@ -3,6 +3,7 @@ Database models and connection for Gold SaaS
 Supports Multi-tenant shops, real-time prices, sales, buybacks, and inventory balances.
 """
 import os
+import time
 import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
@@ -12,7 +13,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 DB_PATH = os.path.join(os.path.dirname(__file__), "gold_saas.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 30})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -200,31 +201,53 @@ def _column_exists(conn, table, column):
     rows = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
     return any(r[1] == column for r in rows)
 
+def _try_sql(conn, sql):
+    """ينفّذ أمراً ويستمر حتى لو عمود مضاف بالفعل من عامل آخر"""
+    try:
+        conn.exec_driver_sql(sql)
+    except Exception as exc:
+        print(f"[db] migrate skipped ({exc}): {sql}")
+
 def _migrate_existing_sqlite():
     """ترحيل آمن لقاعدة SQLite الموجودة بدون فقدان أي بيانات"""
-    with engine.begin() as conn:
-        tables = {r[0] for r in conn.exec_driver_sql(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+    try:
+        with engine.begin() as conn:
+            tables = {r[0] for r in conn.exec_driver_sql(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()}
 
-        if "shops" in tables and not _column_exists(conn, "shops", "opening_cash"):
-            conn.exec_driver_sql("ALTER TABLE shops ADD COLUMN opening_cash FLOAT DEFAULT 0")
+            if "shops" in tables and not _column_exists(conn, "shops", "opening_cash"):
+                _try_sql(conn, "ALTER TABLE shops ADD COLUMN opening_cash FLOAT DEFAULT 0")
 
-        if "customers" in tables and not _column_exists(conn, "customers", "shop_id"):
-            conn.exec_driver_sql("ALTER TABLE customers ADD COLUMN shop_id INTEGER DEFAULT 1")
+            if "customers" in tables and not _column_exists(conn, "customers", "shop_id"):
+                _try_sql(conn, "ALTER TABLE customers ADD COLUMN shop_id INTEGER DEFAULT 1")
 
-        if "invoices" in tables:
-            if not _column_exists(conn, "invoices", "paid_amount"):
-                conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN paid_amount FLOAT DEFAULT 0")
-                # كل الفواتير القديمة كانت بتتحصيل كامل
-                conn.exec_driver_sql("UPDATE invoices SET paid_amount = final_amount")
-            if not _column_exists(conn, "invoices", "remaining_amount"):
-                conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN remaining_amount FLOAT DEFAULT 0")
-                conn.exec_driver_sql("UPDATE invoices SET remaining_amount = 0")
+            if "invoices" in tables:
+                if not _column_exists(conn, "invoices", "paid_amount"):
+                    _try_sql(conn, "ALTER TABLE invoices ADD COLUMN paid_amount FLOAT DEFAULT 0")
+                    # كل الفواتير القديمة كانت بتتحصيل كامل
+                    _try_sql(conn, "UPDATE invoices SET paid_amount = final_amount")
+                if not _column_exists(conn, "invoices", "remaining_amount"):
+                    _try_sql(conn, "ALTER TABLE invoices ADD COLUMN remaining_amount FLOAT DEFAULT 0")
+                    _try_sql(conn, "UPDATE invoices SET remaining_amount = 0")
+    except Exception as exc:
+        print(f"[db] migration failed: {exc}")
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    _migrate_existing_sqlite()
+    last_exc = None
+    for attempt in range(4):
+        try:
+            Base.metadata.create_all(bind=engine)
+            _migrate_existing_sqlite()
+            _seed_defaults()
+            return
+        except Exception as exc:
+            last_exc = exc
+            print(f"[db] init attempt {attempt + 1} failed: {exc}")
+            time.sleep(1.5)
+    print(f"[db] init_db gave up: {last_exc}")
+
+def _seed_defaults():
     db = SessionLocal()
     try:
         shop = db.query(Shop).first()
