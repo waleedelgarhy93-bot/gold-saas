@@ -525,9 +525,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                     </div>
                   )}
                 </div>
-                {selectedStock && (
-                  <p className="text-[10px] text-emerald-400/80">
-                    سيتم خصم هذه القطعة من المخزن تلقائياً ونقلها إلى المباع عند حفظ الفاتورة.
+                {selectedStock ? (
+                  <p className="text-[10px] text-emerald-400">
+                    ✓ تم ربط القطعة: سيتم خصمها من المخزن ونقلها للمباع فور حفظ الفاتورة.
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-emerald-400/90 flex items-center gap-1">
+                    <span>⚡</span>
+                    <span>خصم ذكي: يتم خصم الوزن تلقائياً من رصيد عيار {karat} في المخزن فور حفظ الفاتورة.</span>
                   </p>
                 )}
               </div>

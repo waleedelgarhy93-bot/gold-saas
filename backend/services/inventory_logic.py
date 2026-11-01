@@ -172,26 +172,103 @@ def upsert_customer(db, shop_id, name, phone=None, national_id=None, address=Non
 # ---------- Invoice side effects ----------
 def apply_invoice_inventory_effects(db, shop_id, invoice, payload_items):
     """
-    sale    -> linked stock pieces become sold and leave the warehouse
-    buyback -> purchased pieces enter the scrap section automatically
+    sale    -> deducts sold weight from stock piece / batch, or auto-matches by karat & category.
+    buyback -> purchased pieces enter the scrap section automatically.
     """
     moved = 0
     for payload, db_item in zip(payload_items, invoice.items):
         inventory_id = payload.get("inventory_item_id")
+        sold_net = float(db_item.net_weight or 0.0)
+        sold_gross = float(db_item.gross_weight or sold_net)
+        sold_karat = int(db_item.karat or 21)
 
         if invoice.invoice_type == "sale":
-            if not inventory_id:
-                continue
-            stock = (
-                db.query(InventoryItem)
-                .filter(InventoryItem.id == inventory_id, InventoryItem.shop_id == shop_id)
-                .first()
-            )
-            if stock and stock.status == "in_stock":
-                stock.status = "sold"
-                stock.sold_invoice_id = invoice.id
-                stock.sold_price = db_item.total_item_price
-                stock.sold_at = datetime.datetime.utcnow()
+            stock = None
+            if inventory_id:
+                stock = (
+                    db.query(InventoryItem)
+                    .filter(
+                        InventoryItem.id == inventory_id,
+                        InventoryItem.shop_id == shop_id,
+                        InventoryItem.status == "in_stock"
+                    )
+                    .first()
+                )
+
+            # إذا لم يحدد الصائغ قطعة بعينها، نبحث تلقائياً عن رصيد مناسب في المخزن لنفس العيار والنوع
+            if not stock:
+                item_name = (db_item.item_name or "").strip()
+                query = db.query(InventoryItem).filter(
+                    InventoryItem.shop_id == shop_id,
+                    InventoryItem.section == "new",
+                    InventoryItem.status == "in_stock",
+                    InventoryItem.karat == sold_karat,
+                )
+
+                # 1. مطابقة بالاسم أو نوع الصنف (مثلاً غوايش مع غويشة)
+                matched = query.filter(
+                    (InventoryItem.name.ilike(f"%{item_name}%")) |
+                    (InventoryItem.type_name.ilike(f"%{item_name}%"))
+                ).first()
+
+                if not matched and len(item_name) >= 3:
+                    # محاولة مطابقة أول كلمة
+                    base_word = item_name.split()[0]
+                    if len(base_word) >= 3:
+                        matched = query.filter(
+                            (InventoryItem.name.ilike(f"%{base_word[:3]}%")) |
+                            (InventoryItem.type_name.ilike(f"%{base_word[:3]}%"))
+                        ).first()
+
+                if not matched:
+                    # 2. في حالة عدم وجود تطابق بالاسم، نخصم من أكبر رصيد متاح لنفس العيار
+                    matched = query.order_by(InventoryItem.net_weight.desc()).first()
+
+                stock = matched
+
+            if stock:
+                current_net = float(stock.net_weight or 0.0)
+                current_gross = float(stock.gross_weight or current_net)
+
+                # إذا بيع كامل وزن القطعة أو أكثر
+                if current_net <= sold_net + 0.005:
+                    stock.status = "sold"
+                    stock.sold_invoice_id = invoice.id
+                    stock.sold_price = db_item.total_item_price
+                    stock.sold_at = datetime.datetime.utcnow()
+                else:
+                    # خصم جزئي من وزن الرصيد القائم والصافي (Bulk batch deduction)
+                    new_net = round(max(0.0, current_net - sold_net), 3)
+                    new_gross = round(max(new_net, current_gross - sold_gross), 3)
+                    stock.net_weight = new_net
+                    stock.gross_weight = new_gross
+
+                    # إضافة سجل في أرشيف الذهب المباع لتوثيق الجرامات المباعة
+                    sold_record = InventoryItem(
+                        shop_id=shop_id,
+                        type_id=stock.type_id,
+                        type_name=stock.type_name,
+                        section="new",
+                        status="sold",
+                        name=f"{db_item.item_name or stock.name} (مباع)",
+                        karat=stock.karat,
+                        gross_weight=sold_gross,
+                        stones_weight=round(max(0.0, sold_gross - sold_net), 3),
+                        net_weight=sold_net,
+                        purchase_price_per_gram=stock.purchase_price_per_gram,
+                        purchase_total=round(sold_net * (stock.purchase_price_per_gram or 0.0), 2),
+                        workmanship_per_gram=db_item.workmanship_per_gram,
+                        brand=stock.brand,
+                        serial_number=stock.serial_number,
+                        notes=f"مباع من رصيد #{stock.id} بالفاتورة #{invoice.invoice_number}",
+                        source="sale",
+                        source_invoice_id=None,
+                        sold_invoice_id=invoice.id,
+                        sold_price=db_item.total_item_price,
+                        sold_at=datetime.datetime.utcnow(),
+                    )
+                    db.add(sold_record)
+
                 moved += 1
 
         else:  # buyback -> scrap in
@@ -306,3 +383,30 @@ def customer_with_stats(db, customer):
         "outstanding": round(outstanding, 2),
         "created_at": customer.created_at.isoformat() if customer.created_at else None,
     }
+
+
+def reconcile_past_invoices(db, shop_id=1):
+    """تسوية وخصم الفواتير السابقة التي لم تُخصم من المخزن"""
+    try:
+        past_sales = db.query(Invoice).filter(
+            Invoice.shop_id == shop_id,
+            Invoice.invoice_type == "sale"
+        ).all()
+        for inv in past_sales:
+            already_deducted = db.query(InventoryItem).filter(
+                InventoryItem.shop_id == shop_id,
+                InventoryItem.sold_invoice_id == inv.id
+            ).first()
+            if not already_deducted:
+                payload_items = [
+                    {
+                        "inventory_item_id": getattr(item, "inventory_item_id", None),
+                        "type_id": getattr(item, "type_id", None),
+                        "type_name": getattr(item, "type_name", None),
+                    }
+                    for item in inv.items
+                ]
+                apply_invoice_inventory_effects(db, shop_id, inv, payload_items)
+        db.commit()
+    except Exception as exc:
+        print(f"[db] reconcile_past_invoices error: {exc}")

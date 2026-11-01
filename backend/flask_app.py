@@ -21,11 +21,17 @@ from services.inventory_logic import (
     get_latest_prices, buy_price_for_karat, fetch_live_prices,
     upsert_customer, apply_invoice_inventory_effects,
     capital_summary, cash_balance, inventory_item_to_dict,
-    customer_with_stats, ensure_default_types,
+    customer_with_stats, ensure_default_types, reconcile_past_invoices,
 )
 
-# Initialize SQLite database
+# Initialize database & reconcile inventory
 init_db()
+try:
+    _db_startup = SessionLocal()
+    reconcile_past_invoices(_db_startup)
+    _db_startup.close()
+except Exception as _e:
+    print(f"[startup] reconcile error: {_e}")
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
