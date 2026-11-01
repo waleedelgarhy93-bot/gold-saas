@@ -300,9 +300,17 @@ def _seed_defaults():
                 "shop_id": None
             },
             {
+                "username": "taha",
+                "password": "123",
+                "name": "المعلم طه رجب (مجوهرات الهدى)",
+                "role": "shop_admin",
+                "pin_code": "1111",
+                "shop_id": shop.id if shop else 1
+            },
+            {
                 "username": "admin",
                 "password": "123",
-                "name": "أ/ وليد المقدم (صاحب المحل)",
+                "name": "المعلم طه رجب (صاحب المحل)",
                 "role": "shop_admin",
                 "pin_code": "1111",
                 "shop_id": shop.id if shop else 1
@@ -329,8 +337,11 @@ def _seed_defaults():
                 )
                 db.add(new_u)
             else:
-                existing_u.password = u_data["password"]
+                if not existing_u.password:
+                    existing_u.password = u_data["password"]
                 existing_u.is_active = True
+                if u_data["username"] in ["taha", "admin"] and "وليد" in (existing_u.name or ""):
+                    existing_u.name = u_data["name"]
         db.commit()
 
         price = db.query(GoldPrice).first()
