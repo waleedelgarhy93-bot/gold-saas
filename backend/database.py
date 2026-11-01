@@ -302,7 +302,7 @@ def _seed_defaults():
             {
                 "username": "taha",
                 "password": "123",
-                "name": "المعلم طه رجب (مجوهرات الهدى)",
+                "name": "أ/ طه رجب (صاحب محل الهدى)",
                 "role": "shop_admin",
                 "pin_code": "1111",
                 "shop_id": shop.id if shop else 1
@@ -310,7 +310,7 @@ def _seed_defaults():
             {
                 "username": "admin",
                 "password": "123",
-                "name": "المعلم طه رجب (صاحب المحل)",
+                "name": "أ/ طه رجب (صاحب المحل)",
                 "role": "shop_admin",
                 "pin_code": "1111",
                 "shop_id": shop.id if shop else 1

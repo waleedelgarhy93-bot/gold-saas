@@ -87,7 +87,7 @@ def login():
                     "success": True,
                     "user": {
                         "id": user.id,
-                        "name": user.name or "المعلم طه رجب (مجوهرات الهدى)",
+                        "name": user.name or "أ/ طه رجب (مجوهرات الهدى)",
                         "username": user.username,
                         "role": user.role,
                         "shop_id": user.shop_id or 1,
@@ -109,7 +109,7 @@ def login():
             "taha": {
                 "password": "123",
                 "id": 2,
-                "name": "المعلم طه رجب (صاحب محل الهدى)",
+                "name": "أ/ طه رجب (صاحب محل الهدى)",
                 "role": "shop_admin",
                 "shop_id": 1,
                 "shop_name": "مجوهرات الهدى",
@@ -117,7 +117,7 @@ def login():
             "admin": {
                 "password": "123",
                 "id": 2,
-                "name": "المعلم طه رجب (صاحب محل الهدى)",
+                "name": "أ/ طه رجب (صاحب محل الهدى)",
                 "role": "shop_admin",
                 "shop_id": 1,
                 "shop_name": "مجوهرات الهدى",
