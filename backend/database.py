@@ -17,7 +17,9 @@ RAW_DB_URL = os.environ.get("DATABASE_URL")
 if RAW_DB_URL:
     # دعم قواعد البيانات السحابية (PostgreSQL / Supabase)
     if RAW_DB_URL.startswith("postgres://"):
-        RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql://", 1)
+        RAW_DB_URL = RAW_DB_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif RAW_DB_URL.startswith("postgresql://") and not RAW_DB_URL.startswith("postgresql+"):
+        RAW_DB_URL = RAW_DB_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
     DATABASE_URL = RAW_DB_URL
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 else:

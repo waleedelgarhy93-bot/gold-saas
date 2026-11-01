@@ -27,6 +27,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [settingsDropdownOpen, setSettingsDropdownOpen] = useState(false);
 
   const isCashier = currentUser.role === 'cashier';
   const isSuperAdmin = currentUser.role === 'super_admin';
@@ -104,27 +105,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Desktop Navigation Tabs (Hidden on mobile) */}
-          <nav className="hidden lg:flex items-center gap-1.5">
-            {isSuperAdmin && (
-              <button
-                onClick={() => handleTabClick('superadmin')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
-                  activeTab === 'superadmin'
-                    ? 'bg-indigo-600 text-white font-bold shadow-md shadow-indigo-600/30'
-                    : 'text-indigo-300 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                <span>إدارة المنصة</span>
-              </button>
-            )}
-
+          {/* Desktop Navigation Tabs (Clean, focused on daily operations) */}
+          <nav className="hidden lg:flex items-center gap-2">
             <button
               onClick={() => handleTabClick('pos')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
                 activeTab === 'pos'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                   : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
               }`}
             >
@@ -134,21 +121,21 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => handleTabClick('inventory')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
                 activeTab === 'inventory'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                   : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
               }`}
             >
               <Package className="w-4 h-4" />
-              <span>المخزن</span>
+              <span>المخزن والأرصدة</span>
             </button>
 
             <button
               onClick={() => handleTabClick('invoices')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
                 activeTab === 'invoices'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                   : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
               }`}
             >
@@ -159,60 +146,70 @@ export const Navbar: React.FC<NavbarProps> = ({
             {!isCashier && (
               <button
                 onClick={() => handleTabClick('daily')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
                   activeTab === 'daily'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
                     : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
                 }`}
               >
                 <Scale className="w-4 h-4" />
-                <span>ميزان الذهب والجرد</span>
+                <span>تقفيل اليومية والميزان</span>
               </button>
             )}
-
-            {isShopAdmin && (
-              <button
-                onClick={() => handleTabClick('staff')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
-                  activeTab === 'staff'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                <span>فريق العمل</span>
-              </button>
-            )}
-
-            {isShopAdmin && (
-              <button
-                onClick={() => handleTabClick('settings')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
-                  activeTab === 'settings'
-                    ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                    : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                <span>إعدادات المحل</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => handleTabClick('ai_scanner')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs xl:text-sm transition cursor-pointer ${
-                activeTab === 'ai_scanner'
-                  ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20'
-                  : 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30'
-              }`}
-            >
-              <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-              <span>فحص الـ AI</span>
-            </button>
           </nav>
 
-          {/* User profile & Mobile Menu toggle */}
+          {/* User profile & Settings menu */}
           <div className="flex items-center gap-2">
+            {/* Quick Settings dropdown for Admin/Superadmin */}
+            {!isCashier && (
+              <div className="relative hidden sm:block">
+                <button
+                  onClick={() => setSettingsDropdownOpen(!settingsDropdownOpen)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition cursor-pointer ${
+                    activeTab === 'settings' || activeTab === 'staff' || activeTab === 'superadmin'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                  title="إعدادات النظام"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>الإعدادات</span>
+                </button>
+
+                {settingsDropdownOpen && (
+                  <div className="absolute left-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1 z-50 animate-in fade-in zoom-in-95">
+                    {isShopAdmin && (
+                      <button
+                        onClick={() => { handleTabClick('settings'); setSettingsDropdownOpen(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-amber-300 hover:bg-slate-800 text-right"
+                      >
+                        <Settings className="w-4 h-4 text-amber-400" />
+                        <span>بيانات وإعدادات المحل</span>
+                      </button>
+                    )}
+                    {isShopAdmin && (
+                      <button
+                        onClick={() => { handleTabClick('staff'); setSettingsDropdownOpen(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:text-amber-300 hover:bg-slate-800 text-right"
+                      >
+                        <Users className="w-4 h-4 text-amber-400" />
+                        <span>فريق العمل والمساعدين</span>
+                      </button>
+                    )}
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => { handleTabClick('superadmin'); setSettingsDropdownOpen(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-300 hover:text-white hover:bg-slate-800 text-right"
+                      >
+                        <Shield className="w-4 h-4 text-indigo-400" />
+                        <span>إدارة المنصة (SuperAdmin)</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="hidden sm:flex flex-col text-left">
               <span className="text-xs font-bold text-slate-200">{currentUser.name}</span>
               <span className={`text-[10px] font-medium ${
@@ -371,21 +368,21 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       )}
 
-      {/* Mobile Bottom Quick Navigation Bar (App Bar for PWA) */}
+      {/* Mobile Bottom Quick Navigation Bar (Clean & Accessible) */}
       <div className="lg:hidden flex items-center justify-around bg-slate-950/95 backdrop-blur border-t border-slate-800/80 px-2 py-1.5 fixed bottom-0 left-0 right-0 z-50">
         <button
           onClick={() => handleTabClick('pos')}
-          className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
             activeTab === 'pos' ? 'text-amber-400 font-bold' : 'text-slate-400'
           }`}
         >
           <Receipt className="w-4 h-4" />
-          <span>POS</span>
+          <span>نقطة البيع</span>
         </button>
 
         <button
           onClick={() => handleTabClick('inventory')}
-          className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
             activeTab === 'inventory' ? 'text-amber-400 font-bold' : 'text-slate-400'
           }`}
         >
@@ -395,7 +392,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => handleTabClick('invoices')}
-          className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
             activeTab === 'invoices' ? 'text-amber-400 font-bold' : 'text-slate-400'
           }`}
         >
@@ -403,17 +400,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>الفواتير</span>
         </button>
 
-        <button
-          onClick={() => handleTabClick('ai_scanner')}
-          className="flex flex-col items-center gap-1 -mt-4 bg-gradient-to-tr from-amber-600 to-amber-400 text-slate-950 p-2.5 rounded-full shadow-lg shadow-amber-500/30 border-2 border-slate-900"
-        >
-          <Sparkles className="w-5 h-5 fill-slate-950" />
-        </button>
-
         {!isCashier && (
           <button
             onClick={() => handleTabClick('daily')}
-            className={`flex flex-col items-center gap-1 py-1 px-2 rounded-lg text-[10px] ${
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
               activeTab === 'daily' ? 'text-amber-400 font-bold' : 'text-slate-400'
             }`}
           >
@@ -422,6 +412,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
         )}
 
+        {isShopAdmin && (
+          <button
+            onClick={() => handleTabClick('settings')}
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
+              activeTab === 'settings' ? 'text-amber-400 font-bold' : 'text-slate-400'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            <span>الإعدادات</span>
+          </button>
+        )}
       </div>
     </header>
   );
