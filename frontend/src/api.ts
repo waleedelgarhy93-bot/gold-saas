@@ -190,14 +190,37 @@ export async function createInvoiceAPI(invoiceData: any): Promise<Invoice> {
   return savedInv;
 }
 
-export async function fetchInvoices(): Promise<Invoice[]> {
+export async function fetchInvoices(params?: { limit?: number; invoice_type?: string; q?: string }): Promise<Invoice[]> {
   try {
-    const res = await fetch(`${API_BASE}/invoices`);
+    const search = new URLSearchParams();
+    if (params?.limit) search.set('limit', String(params.limit));
+    if (params?.invoice_type && params.invoice_type !== 'all') search.set('invoice_type', params.invoice_type);
+    if (params?.q) search.set('q', params.q);
+
+    const queryStr = search.toString();
+    const res = await fetch(`${API_BASE}/invoices${queryStr ? `?${queryStr}` : ''}`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend not responding, loading local invoices:', e);
   }
   return JSON.parse(localStorage.getItem('gold_invoices') || '[]');
+}
+
+export async function deleteInvoiceAPI(invoiceId: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/invoices/${invoiceId}`, { method: 'DELETE' });
+    if (res.ok) {
+      // Also update local storage if present
+      const stored: Invoice[] = JSON.parse(localStorage.getItem('gold_invoices') || '[]');
+      const filtered = stored.filter(i => i.id !== invoiceId);
+      localStorage.setItem('gold_invoices', JSON.stringify(filtered));
+      return { ok: true };
+    }
+    return { ok: false, error: await readError(res, 'تعذر حذف الفاتورة') };
+  } catch (e) {
+    console.warn('Error deleting invoice:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
 }
 
 export async function fetchAuditReportAPI(
@@ -418,6 +441,24 @@ export async function deleteInventoryItem(id: number): Promise<{ ok: boolean; er
     return { ok: false, error: await readError(res, 'تعذر حذف القطعة') };
   } catch (e) {
     console.warn('Error deleting inventory item:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function resetInventoryAPI(scope: 'in_stock' | 'all' = 'in_stock'): Promise<{ ok: boolean; deleted_count?: number; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/inventory/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, deleted_count: data.deleted_count };
+    }
+    return { ok: false, error: await readError(res, 'تعذر تصفير المخزن') };
+  } catch (e) {
+    console.warn('Error resetting inventory:', e);
     return { ok: false, error: 'تعذر الاتصال بالخادم' };
   }
 }

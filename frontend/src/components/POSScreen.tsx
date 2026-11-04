@@ -296,6 +296,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <CheckCircle2 className="w-6 h-6 text-emerald-400" />
             <div>
               <p className="font-bold text-sm">تم حفظ الفاتورة بنجاح: {successInvoice.invoice_number}</p>
+              <p className="text-xs text-amber-300 font-medium">
+                {successInvoice.invoice_type === 'sale'
+                  ? '✨ تم خصم وزن الذهب المباع تلقائياً من رصيد المخزن'
+                  : '✨ تم إضافة الذهب الكسر المشترى تلقائياً إلى مخزن الكسر والمستعمل'}
+              </p>
               <p className="text-xs text-emerald-300/80">
                 المعادل الذهبي: {successInvoice.equivalent_21k_weight} جرام عيار 21
                 {(successInvoice.remaining_amount || 0) > 0 && (

@@ -5,12 +5,12 @@ import type {
 } from '../types';
 import {
   fetchJewelryTypes, createJewelryType, fetchInventory, addInventoryItem,
-  updateInventoryItem, deleteInventoryItem, fetchCapital, fetchInventorySummary,
+  updateInventoryItem, deleteInventoryItem, resetInventoryAPI, fetchCapital, fetchInventorySummary,
   fetchCashTransactions, addCashTransaction, updateOpeningCash,
 } from '../api';
 import {
   Package, Plus, Trash2, Pencil, Wallet, Scale, Coins, X, Save,
-  Search, Layers, ArrowDownLeft, ArrowUpRight, Receipt, AlertCircle,
+  Search, Layers, ArrowDownLeft, ArrowUpRight, Receipt, AlertCircle, RotateCcw,
 } from 'lucide-react';
 
 interface InventoryViewProps {
@@ -70,6 +70,31 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
 
   const [tab, setTab] = useState<TabKey>('new');
   const [search, setSearch] = useState('');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetScope, setResetScope] = useState<'in_stock' | 'all'>('in_stock');
+  const [resetConfirmInput, setResetConfirmInput] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const handleResetInventory = async () => {
+    if (resetConfirmInput.trim() !== 'تصفير') {
+      setResetError('من فضلك اكتب كلمة "تصفير" للتأكيد');
+      return;
+    }
+    setResetting(true);
+    setResetError(null);
+    const res = await resetInventoryAPI(resetScope);
+    setResetting(false);
+    if (res.ok) {
+      setIsResetModalOpen(false);
+      setResetConfirmInput('');
+      await loadAll();
+      alert(`تم تصفير المخزن بنجاح! تم مسح/تصفير ${res.deleted_count || 0} سجل.`);
+    } else {
+      setResetError(res.error || 'فشل تصفير المخزن');
+    }
+  };
+
   const [typeFilter, setTypeFilter] = useState('');
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -283,13 +308,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
             الجديد والكسر والمباع — أي قطعة تتباع تنقص من المخزن تلقائياً وتنتقل للمباع
           </p>
         </div>
-        <button
-          onClick={openAddForm}
-          className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition cursor-pointer shadow-lg shadow-amber-500/20"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>إضافة قطعة للمخزن</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => setIsResetModalOpen(true)}
+              className="flex items-center gap-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer"
+              title="تصفير أرصدة المخزن"
+            >
+              <RotateCcw className="w-4 h-4 text-rose-400" />
+              <span>تصفير المخزن</span>
+            </button>
+          )}
+          <button
+            onClick={openAddForm}
+            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs transition cursor-pointer shadow-lg shadow-amber-500/20"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>إضافة قطعة للمخزن</span>
+          </button>
+        </div>
       </div>
 
       {/* Capital cards */}
@@ -805,6 +842,94 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
           <span>الأسعار والتكلفة ورأس المال ظاهرة لصاحب المحل فقط. الكاشير يقدر يشوف القطع ويختار منها أثناء البيع.</span>
         </div>
       )}
-    </div>
+    
+      {/* Reset Inventory Confirmation Modal */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-rose-900/50 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-rose-400">
+                <AlertCircle className="w-5 h-5" />
+                <h2 className="text-sm font-bold text-slate-100">تصفير أرصدة المخزن</h2>
+              </div>
+              <button
+                onClick={() => { setIsResetModalOpen(false); setResetError(null); }}
+                className="text-slate-400 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-rose-950/30 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200 leading-relaxed">
+              ⚠️ <strong>تحذير أمني ومحاسبي:</strong> هذه العملية ستقوم بتصفير أرصدة الذهب في المخزن ومسح قطع المخزون ليصبح الرصيد 0.00 جرام.
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs text-slate-300 font-bold">نطاق التصفير:</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setResetScope('in_stock')}
+                  className={`p-3 rounded-xl border text-right transition cursor-pointer ${
+                    resetScope === 'in_stock'
+                      ? 'bg-rose-500/20 border-rose-500 text-rose-200 font-bold'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="font-bold">الذهب القائم فقط</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">تصفير الأرصدة الحالية المعروضة</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetScope('all')}
+                  className={`p-3 rounded-xl border text-right transition cursor-pointer ${
+                    resetScope === 'all'
+                      ? 'bg-rose-500/20 border-rose-500 text-rose-200 font-bold'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="font-bold">تصفير شامل</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">مسح الأرصدة القائمة والمباع</div>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-300 mb-1">
+                لتأكيد العملية، اكتب كلمة <strong className="text-rose-400 font-bold">تصفير</strong> في المربع أدناه:
+              </label>
+              <input
+                type="text"
+                value={resetConfirmInput}
+                onChange={(e) => setResetConfirmInput(e.target.value)}
+                placeholder="اكتب: تصفير"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-center text-sm font-bold text-rose-300 focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
+            {resetError && <p className="text-xs text-rose-400 font-bold">{resetError}</p>}
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => { setIsResetModalOpen(false); setResetError(null); }}
+                className="px-4 py-2 text-xs text-slate-400 hover:text-white cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleResetInventory}
+                disabled={resetting || resetConfirmInput.trim() !== 'تصفير'}
+                className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition cursor-pointer"
+              >
+                <RotateCcw className={`w-4 h-4 ${resetting ? 'animate-spin' : ''}`} />
+                <span>{resetting ? 'جاري التصفير...' : 'تصفير المخزن الآن'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+</div>
   );
 };

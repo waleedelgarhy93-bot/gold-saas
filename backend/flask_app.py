@@ -541,11 +541,19 @@ def invoices_handler():
     db = get_db()
     try:
         if request.method == "GET":
-            limit = request.args.get("limit", 50, type=int)
+            limit = request.args.get("limit", 500, type=int)
             inv_type = request.args.get("invoice_type")
+            search = (request.args.get("q") or request.args.get("search") or "").strip()
             q = db.query(Invoice).order_by(Invoice.id.desc())
-            if inv_type:
+            if inv_type and inv_type != "all":
                 q = q.filter(Invoice.invoice_type == inv_type)
+            if search:
+                q = q.filter(
+                    (Invoice.invoice_number.ilike(f"%{search}%")) |
+                    (Invoice.customer_name.ilike(f"%{search}%")) |
+                    (Invoice.customer_phone.ilike(f"%{search}%")) |
+                    (Invoice.customer_national_id.ilike(f"%{search}%"))
+                )
             invoices = q.limit(limit).all()
 
             result = []
@@ -716,6 +724,40 @@ def invoices_handler():
             "payment_method": invoice.payment_method,
             "created_at": invoice.created_at.isoformat() if invoice.created_at else None
         })
+    finally:
+        db.close()
+
+@app.route("/api/invoices/<int:invoice_id>", methods=["DELETE"])
+def delete_invoice(invoice_id):
+    db = get_db()
+    try:
+        inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+        if not inv:
+            return jsonify({"detail": "الفاتورة غير موجودة"}), 404
+
+        # حذف قطع الكسر التي دخلت المخزن من هذه الفاتورة
+        db.query(InventoryItem).filter(
+            InventoryItem.source_invoice_id == invoice_id,
+            InventoryItem.status == "in_stock"
+        ).delete(synchronize_session=False)
+
+        # استرجاع القطع المباعة في الفاتورة أو حذف سجلات البيع
+        sold_logs = db.query(InventoryItem).filter(InventoryItem.sold_invoice_id == invoice_id).all()
+        for s in sold_logs:
+            if s.source in ("sale", "direct_sale"):
+                db.delete(s)
+            else:
+                s.status = "in_stock"
+                s.sold_invoice_id = None
+                s.sold_at = None
+                s.sold_price = None
+
+        db.delete(inv)
+        db.commit()
+        return jsonify({"success": True, "message": "تم حذف الفاتورة بنجاح"})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"detail": str(e)}), 500
     finally:
         db.close()
 
@@ -1069,6 +1111,35 @@ def inventory_summary():
             "sold_value": round(sum(i.sold_price or 0 for i in sold), 2),
         }
         return jsonify(result)
+    finally:
+        db.close()
+
+@app.route("/api/inventory/reset", methods=["POST"])
+def reset_inventory():
+    """تصفير رصيد المخزن (الأرصدة القائمة أو تصفير شامل)"""
+    db = get_db()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        shop_id = int(data.get("shop_id") or 1)
+        scope = data.get("scope", "in_stock")  # "in_stock" أو "all"
+
+        query = db.query(InventoryItem).filter(InventoryItem.shop_id == shop_id)
+        if scope == "in_stock":
+            # تصفير الأرصدة القائمة فقط
+            deleted_count = query.filter(InventoryItem.status == "in_stock").delete(synchronize_session=False)
+        else:
+            # تصفير شامل للأرصدة والمباع
+            deleted_count = query.delete(synchronize_session=False)
+
+        db.commit()
+        return jsonify({
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"تم تصفير المخزن بنجاح ({deleted_count} سجل)"
+        })
+    except Exception as e:
+        db.rollback()
+        return jsonify({"detail": f"فشل تصفير المخزن: {str(e)}"}), 500
     finally:
         db.close()
 

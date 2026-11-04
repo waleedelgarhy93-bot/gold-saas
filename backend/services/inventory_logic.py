@@ -169,6 +169,38 @@ def upsert_customer(db, shop_id, name, phone=None, national_id=None, address=Non
     return customer
 
 
+JEWELRY_SYNONYMS = {
+    "غوايش": ["غويش", "غوايش", "اسواره", "اساور", "اسوره", "معصم", "بنجره", "بناجر"],
+    "خواتم": ["خاتم", "خواتم", "محبس", "محابس", "توينز", "سوليتير", "فص"],
+    "سلاسل": ["سلسل", "سلاسل", "عقد", "كوليه", "مداليه", "دلايه", "شوكر"],
+    "حلقان": ["حلق", "حلقان", "قرط", "بريمه"],
+    "دبل": ["دبل", "دبله"],
+    "سبائك": ["سبيك", "سبائك", "btc", "سبيكه", "سام", "لازوردي", "سويس", "سويسري"],
+    "جنيهات ذهب": ["جنيه", "جنيهات", "نصف جنيه", "ربع جنيه", "جورج"],
+    "كسر ومستعمل": ["كسر", "مستعمل", "قديم", "سقط"],
+}
+
+def normalize_ar(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).strip().lower()
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ة", "ه").replace("ى", "ي")
+    clean = [c for c in text if c.isalnum() or c.isspace()]
+    return "".join(clean)
+
+def get_synonym_group(text: str):
+    norm = normalize_ar(text)
+    matched_groups = set()
+    for main_cat, syns in JEWELRY_SYNONYMS.items():
+        if normalize_ar(main_cat) in norm:
+            matched_groups.add(main_cat)
+            continue
+        for s in syns:
+            if s in norm:
+                matched_groups.add(main_cat)
+                break
+    return matched_groups
+
 # ---------- Invoice side effects ----------
 def apply_invoice_inventory_effects(db, shop_id, invoice, payload_items):
     """
@@ -183,102 +215,187 @@ def apply_invoice_inventory_effects(db, shop_id, invoice, payload_items):
         sold_karat = int(db_item.karat or 21)
 
         if invoice.invoice_type == "sale":
-            stock = None
+            remaining_net = sold_net
+            remaining_gross = sold_gross
+
+            # 1. إذا كان تم اختيار قطعة بعينها من المخزن
             if inventory_id:
-                stock = (
+                specific = (
                     db.query(InventoryItem)
                     .filter(
                         InventoryItem.id == inventory_id,
                         InventoryItem.shop_id == shop_id,
-                        InventoryItem.status == "in_stock"
+                        InventoryItem.status == "in_stock",
                     )
                     .first()
                 )
+                if specific:
+                    cur_net = float(specific.net_weight or 0.0)
+                    cur_gross = float(specific.gross_weight or cur_net)
+                    if cur_net <= remaining_net + 0.005:
+                        specific.status = "sold"
+                        specific.sold_invoice_id = invoice.id
+                        specific.sold_price = round(cur_net * (db_item.price_per_gram or 0.0), 2)
+                        specific.sold_at = datetime.datetime.utcnow()
+                        remaining_net = round(max(0.0, remaining_net - cur_net), 3)
+                        remaining_gross = round(max(0.0, remaining_gross - cur_gross), 3)
+                    else:
+                        specific.net_weight = round(cur_net - remaining_net, 3)
+                        specific.gross_weight = round(max(specific.net_weight, cur_gross - remaining_gross), 3)
+                        sold_part = InventoryItem(
+                            shop_id=shop_id,
+                            type_id=specific.type_id,
+                            type_name=specific.type_name,
+                            section=specific.section,
+                            status="sold",
+                            name=f"{db_item.item_name or specific.name} (مباع)",
+                            karat=specific.karat,
+                            gross_weight=remaining_gross,
+                            stones_weight=round(max(0.0, remaining_gross - remaining_net), 3),
+                            net_weight=remaining_net,
+                            purchase_price_per_gram=specific.purchase_price_per_gram,
+                            purchase_total=round(remaining_net * (specific.purchase_price_per_gram or 0.0), 2),
+                            workmanship_per_gram=db_item.workmanship_per_gram,
+                            brand=specific.brand,
+                            serial_number=specific.serial_number,
+                            notes=f"مباع من رصيد #{specific.id} بالفاتورة #{invoice.invoice_number}",
+                            source="sale",
+                            sold_invoice_id=invoice.id,
+                            sold_price=db_item.total_item_price,
+                            sold_at=datetime.datetime.utcnow(),
+                        )
+                        db.add(sold_part)
+                        remaining_net = 0.0
+                        remaining_gross = 0.0
 
-            # إذا لم يحدد الصائغ قطعة بعينها، نبحث تلقائياً عن رصيد مناسب في المخزن لنفس العيار والنوع
-            if not stock:
-                item_name = (db_item.item_name or "").strip()
-                query = db.query(InventoryItem).filter(
-                    InventoryItem.shop_id == shop_id,
-                    InventoryItem.section == "new",
-                    InventoryItem.status == "in_stock",
-                    InventoryItem.karat == sold_karat,
+            # 2. إذا لم تحدد قطعة أو تبقى وزن للخصم، نبحث بذكاء في المخزن لنفس العيار
+            if remaining_net > 0.001:
+                item_name = db_item.item_name or ""
+                target_groups = get_synonym_group(item_name)
+                norm_item_name = normalize_ar(item_name)
+
+                # كل قطع العيار المتاحة في المخزن
+                all_stock = (
+                    db.query(InventoryItem)
+                    .filter(
+                        InventoryItem.shop_id == shop_id,
+                        InventoryItem.status == "in_stock",
+                        InventoryItem.karat == sold_karat,
+                        InventoryItem.net_weight > 0.001,
+                    )
+                    .all()
                 )
 
-                # 1. مطابقة بالاسم أو نوع الصنف (مثلاً غوايش مع غويشة)
-                matched = query.filter(
-                    (InventoryItem.name.ilike(f"%{item_name}%")) |
-                    (InventoryItem.type_name.ilike(f"%{item_name}%"))
-                ).first()
+                def item_score(stock_item):
+                    score = 0
+                    stock_type_norm = normalize_ar(stock_item.type_name or "")
+                    stock_name_norm = normalize_ar(stock_item.name or "")
+                    stock_groups = get_synonym_group(f"{stock_item.type_name} {stock_item.name}")
 
-                if not matched and len(item_name) >= 3:
-                    # محاولة مطابقة أول كلمة
-                    base_word = item_name.split()[0]
-                    if len(base_word) >= 3:
-                        matched = query.filter(
-                            (InventoryItem.name.ilike(f"%{base_word[:3]}%")) |
-                            (InventoryItem.type_name.ilike(f"%{base_word[:3]}%"))
-                        ).first()
+                    # تطابق تصنيف الصاغة (غوايش، خواتم، حلقان...)
+                    if target_groups and (target_groups & stock_groups):
+                        score += 50
+                    # تطابق اسم أو كلمة
+                    if norm_item_name and (norm_item_name in stock_name_norm or stock_name_norm in norm_item_name):
+                        score += 30
+                    if stock_type_norm and (stock_type_norm in norm_item_name or norm_item_name in stock_type_norm):
+                        score += 20
+                    # تفضيل الذهب الجديد على الكسر عند البيع
+                    if stock_item.section == "new":
+                        score += 10
+                    return score
 
-                if not matched:
-                    # 2. في حالة عدم وجود تطابق بالاسم، نخصم من أكبر رصيد متاح لنفس العيار
-                    matched = query.order_by(InventoryItem.net_weight.desc()).first()
+                sorted_candidates = sorted(all_stock, key=lambda s: (item_score(s), float(s.net_weight or 0.0)), reverse=True)
 
-                stock = matched
+                for stock in sorted_candidates:
+                    if remaining_net <= 0.001:
+                        break
+                    cur_net = float(stock.net_weight or 0.0)
+                    cur_gross = float(stock.gross_weight or cur_net)
 
-            if stock:
-                current_net = float(stock.net_weight or 0.0)
-                current_gross = float(stock.gross_weight or current_net)
+                    if cur_net <= remaining_net + 0.005:
+                        # استهلاك كامل القطعة
+                        stock.status = "sold"
+                        stock.sold_invoice_id = invoice.id
+                        stock.sold_price = round(cur_net * (db_item.price_per_gram or 0.0), 2)
+                        stock.sold_at = datetime.datetime.utcnow()
+                        remaining_net = round(max(0.0, remaining_net - cur_net), 3)
+                        remaining_gross = round(max(0.0, remaining_gross - cur_gross), 3)
+                    else:
+                        # خصم جزئي من وزن القطعة
+                        stock.net_weight = round(cur_net - remaining_net, 3)
+                        stock.gross_weight = round(max(stock.net_weight, cur_gross - remaining_gross), 3)
+                        sold_part = InventoryItem(
+                            shop_id=shop_id,
+                            type_id=stock.type_id,
+                            type_name=stock.type_name,
+                            section=stock.section,
+                            status="sold",
+                            name=f"{db_item.item_name or stock.name} (مباع)",
+                            karat=stock.karat,
+                            gross_weight=remaining_gross,
+                            stones_weight=round(max(0.0, remaining_gross - remaining_net), 3),
+                            net_weight=remaining_net,
+                            purchase_price_per_gram=stock.purchase_price_per_gram,
+                            purchase_total=round(remaining_net * (stock.purchase_price_per_gram or 0.0), 2),
+                            workmanship_per_gram=db_item.workmanship_per_gram,
+                            brand=stock.brand,
+                            serial_number=stock.serial_number,
+                            notes=f"مباع من رصيد #{stock.id} بالفاتورة #{invoice.invoice_number}",
+                            source="sale",
+                            sold_invoice_id=invoice.id,
+                            sold_price=db_item.total_item_price,
+                            sold_at=datetime.datetime.utcnow(),
+                        )
+                        db.add(sold_part)
+                        remaining_net = 0.0
+                        remaining_gross = 0.0
+                        break
 
-                # إذا بيع كامل وزن القطعة أو أكثر
-                if current_net <= sold_net + 0.005:
-                    stock.status = "sold"
-                    stock.sold_invoice_id = invoice.id
-                    stock.sold_price = db_item.total_item_price
-                    stock.sold_at = datetime.datetime.utcnow()
-                else:
-                    # خصم جزئي من وزن الرصيد القائم والصافي (Bulk batch deduction)
-                    new_net = round(max(0.0, current_net - sold_net), 3)
-                    new_gross = round(max(new_net, current_gross - sold_gross), 3)
-                    stock.net_weight = new_net
-                    stock.gross_weight = new_gross
-
-                    # إضافة سجل في أرشيف الذهب المباع لتوثيق الجرامات المباعة
-                    sold_record = InventoryItem(
+                # إذا لم يكن هناك رصيد في المخزن أو نفد الرصيد، نسجل عملية البيع المباشر في أرشيف المباع
+                if remaining_net > 0.001:
+                    direct_sold = InventoryItem(
                         shop_id=shop_id,
-                        type_id=stock.type_id,
-                        type_name=stock.type_name,
+                        type_id=None,
+                        type_name=payload.get("type_name") or "مبيعات مباشرة",
                         section="new",
                         status="sold",
-                        name=f"{db_item.item_name or stock.name} (مباع)",
-                        karat=stock.karat,
-                        gross_weight=sold_gross,
-                        stones_weight=round(max(0.0, sold_gross - sold_net), 3),
-                        net_weight=sold_net,
-                        purchase_price_per_gram=stock.purchase_price_per_gram,
-                        purchase_total=round(sold_net * (stock.purchase_price_per_gram or 0.0), 2),
+                        name=f"{db_item.item_name} (بيع مباشر من الفاتورة)",
+                        karat=sold_karat,
+                        gross_weight=remaining_gross,
+                        stones_weight=round(max(0.0, remaining_gross - remaining_net), 3),
+                        net_weight=remaining_net,
+                        purchase_price_per_gram=0.0,
+                        purchase_total=0.0,
                         workmanship_per_gram=db_item.workmanship_per_gram,
-                        brand=stock.brand,
-                        serial_number=stock.serial_number,
-                        notes=f"مباع من رصيد #{stock.id} بالفاتورة #{invoice.invoice_number}",
-                        source="sale",
-                        source_invoice_id=None,
+                        brand=db_item.brand,
+                        serial_number=db_item.serial_number,
+                        notes=f"بيع مباشر بالفاتورة #{invoice.invoice_number}",
+                        source="direct_sale",
                         sold_invoice_id=invoice.id,
                         sold_price=db_item.total_item_price,
                         sold_at=datetime.datetime.utcnow(),
                     )
-                    db.add(sold_record)
+                    db.add(direct_sold)
 
-                moved += 1
+            moved += 1
 
-        else:  # buyback -> scrap in
+        else:  # buyback -> scrap into inventory automatically!
+            scrap_type = (
+                db.query(JewelryType)
+                .filter(JewelryType.shop_id == shop_id, JewelryType.name.ilike("%كسر%"))
+                .first()
+            )
+            if not scrap_type:
+                scrap_type = db.query(JewelryType).filter(JewelryType.shop_id == shop_id).first()
+
             scrap = InventoryItem(
                 shop_id=shop_id,
-                type_id=payload.get("type_id"),
-                type_name=payload.get("type_name") or "كسر ومستعمل",
+                type_id=payload.get("type_id") or (scrap_type.id if scrap_type else None),
+                type_name=payload.get("type_name") or (scrap_type.name if scrap_type else "كسر ومستعمل"),
                 section="scrap",
                 status="in_stock",
-                name=db_item.item_name or "كسر",
+                name=db_item.item_name or f"كسر عيار {db_item.karat}",
                 karat=db_item.karat,
                 gross_weight=db_item.gross_weight,
                 stones_weight=db_item.stones_weight,
@@ -289,7 +406,8 @@ def apply_invoice_inventory_effects(db, shop_id, invoice, payload_items):
                 serial_number=db_item.serial_number,
                 source="buyback",
                 source_invoice_id=invoice.id,
-                paid_from_cash=False,
+                paid_from_cash=True,
+                notes=f"شراء كسر من {invoice.customer_name} بالفاتورة #{invoice.invoice_number}",
             )
             db.add(scrap)
             moved += 1
@@ -386,8 +504,9 @@ def customer_with_stats(db, customer):
 
 
 def reconcile_past_invoices(db, shop_id=1):
-    """تسوية وخصم الفواتير السابقة التي لم تُخصم من المخزن"""
+    """تسوية وخصم الفواتير السابقة التي لم تُخصم من المخزن وتسجيل شراء الكسر"""
     try:
+        # 1. تسوية المبيعات
         past_sales = db.query(Invoice).filter(
             Invoice.shop_id == shop_id,
             Invoice.invoice_type == "sale"
@@ -407,6 +526,28 @@ def reconcile_past_invoices(db, shop_id=1):
                     for item in inv.items
                 ]
                 apply_invoice_inventory_effects(db, shop_id, inv, payload_items)
+
+        # 2. تسوية شراء الكسر
+        past_buybacks = db.query(Invoice).filter(
+            Invoice.shop_id == shop_id,
+            Invoice.invoice_type == "buyback"
+        ).all()
+        for inv in past_buybacks:
+            already_in = db.query(InventoryItem).filter(
+                InventoryItem.shop_id == shop_id,
+                InventoryItem.source_invoice_id == inv.id
+            ).first()
+            if not already_in:
+                payload_items = [
+                    {
+                        "inventory_item_id": None,
+                        "type_id": getattr(item, "type_id", None),
+                        "type_name": getattr(item, "type_name", None),
+                    }
+                    for item in inv.items
+                ]
+                apply_invoice_inventory_effects(db, shop_id, inv, payload_items)
+
         db.commit()
     except Exception as exc:
         print(f"[db] reconcile_past_invoices error: {exc}")

@@ -140,7 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Receipt className="w-4 h-4" />
-              <span>سجل الفواتير</span>
+              <span>قسم الفواتير</span>
             </button>
 
             {!isCashier && (
@@ -308,7 +308,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Receipt className="w-4 h-4 shrink-0" />
-              <span>سجل الفواتير</span>
+              <span>قسم الفواتير</span>
             </button>
 
             {!isCashier && (
@@ -397,7 +397,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           }`}
         >
           <Receipt className="w-4 h-4" />
-          <span>الفواتير</span>
+          <span>قسم الفواتير</span>
         </button>
 
         {!isCashier && (
