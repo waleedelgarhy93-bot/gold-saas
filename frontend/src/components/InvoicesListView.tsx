@@ -15,6 +15,14 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const userRole = (() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+      return u.role || 'cashier';
+    } catch { return 'cashier'; }
+  })();
+  const isAdmin = userRole === 'shop_admin' || userRole === 'super_admin';
+
   const [filterType, setFilterType] = useState<string>('all');
   const [filterPayment, setFilterPayment] = useState<string>('all');
   const [filterDate, setFilterDate] = useState<string>('all');
@@ -553,13 +561,15 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                             <Printer className="w-4 h-4" />
                           </button>
 
-                          <button
-                            onClick={() => setDeleteConfirmInvoice(inv)}
-                            className="p-1.5 hover:bg-rose-950/40 text-slate-500 hover:text-rose-400 rounded-lg transition cursor-pointer"
-                            title="حذف الفاتورة"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDeleteConfirmInvoice(inv)}
+                              className="p-1.5 hover:bg-rose-950/40 text-slate-500 hover:text-rose-400 rounded-lg transition cursor-pointer"
+                              title="حذف الفاتورة"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -692,13 +702,15 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
 
             {/* Modal Actions */}
             <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={() => setDeleteConfirmInvoice(detailsInvoice)}
-                className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 text-xs px-3 py-2 rounded-xl transition cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>حذف هذه الفاتورة</span>
-              </button>
+              {isAdmin ? (
+                <button
+                  onClick={() => setDeleteConfirmInvoice(detailsInvoice)}
+                  className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 text-xs px-3 py-2 rounded-xl transition cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>حذف هذه الفاتورة</span>
+                </button>
+              ) : <div />}
 
               <div className="flex items-center gap-2">
                 <button

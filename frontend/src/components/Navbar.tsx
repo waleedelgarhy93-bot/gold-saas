@@ -119,17 +119,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>نقطة البيع (POS)</span>
             </button>
 
-            <button
-              onClick={() => handleTabClick('inventory')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
-                activeTab === 'inventory'
-                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-                  : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>المخزن والأرصدة</span>
-            </button>
+            {!isCashier && (
+              <button
+                onClick={() => handleTabClick('inventory')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
+                  activeTab === 'inventory'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                    : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>المخزن والأرصدة</span>
+              </button>
+            )}
 
             <button
               onClick={() => handleTabClick('invoices')}
@@ -380,15 +382,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>نقطة البيع</span>
         </button>
 
-        <button
-          onClick={() => handleTabClick('inventory')}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
-            activeTab === 'inventory' ? 'text-amber-400 font-bold' : 'text-slate-400'
-          }`}
-        >
-          <Package className="w-4 h-4" />
-          <span>المخزن</span>
-        </button>
+        {!isCashier && (
+          <button
+            onClick={() => handleTabClick('inventory')}
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-lg text-[10px] ${
+              activeTab === 'inventory' ? 'text-amber-400 font-bold' : 'text-slate-400'
+            }`}
+          >
+            <Package className="w-4 h-4" />
+            <span>المخزن</span>
+          </button>
+        )}
 
         <button
           onClick={() => handleTabClick('invoices')}

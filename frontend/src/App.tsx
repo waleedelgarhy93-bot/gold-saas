@@ -46,6 +46,12 @@ export const App: React.FC = () => {
   // Active invoice for printing
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
 
+    useEffect(() => {
+    if (currentUser?.role === 'cashier' && activeTab === 'inventory') {
+      setActiveTab('pos');
+    }
+  }, [currentUser, activeTab]);
+
   useEffect(() => {
     fetchGoldPrices().then(setPrices);
     fetchShopInfo().then(setShopInfo);
