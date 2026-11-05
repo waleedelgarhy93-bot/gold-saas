@@ -5,7 +5,7 @@ import {
   Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search, FileDown
 } from 'lucide-react';
 import { createInvoiceAPI, fetchInventory } from '../api';
-import { downloadInvoicePDF, shareInvoiceViaWhatsApp } from '../utils/pdfGenerator';
+import { downloadInvoicePDF, sendInvoiceViaWhatsApp } from '../utils/pdfGenerator';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -266,7 +266,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     }
 
     if (successInvoice) {
-      await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', successInvoice, shopInfo);
+      sendInvoiceViaWhatsApp(successInvoice, shopInfo);
       return;
     }
 
@@ -275,15 +275,16 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       return;
     }
 
+    // Direct text send even if not yet saved, or save then send
     try {
       await handleSaveInvoice(false);
-      setTimeout(async () => {
+      setTimeout(() => {
         if (successInvoice) {
-          await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', successInvoice, shopInfo);
+          sendInvoiceViaWhatsApp(successInvoice, shopInfo);
         }
-      }, 600);
+      }, 300);
     } catch (e) {
-      console.warn('Error sharing after save:', e);
+      console.warn('Error saving before WhatsApp:', e);
     }
   };
 
@@ -349,7 +350,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               title="إرسال الفاتورة عبر واتساب كملف PDF"
             >
               <Send className="w-4 h-4" />
-              <span>واتساب (PDF)</span>
+              <span>واتساب</span>
             </button>
             <button
               onClick={handleReset}

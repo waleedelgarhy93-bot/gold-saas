@@ -3,6 +3,87 @@ import jsPDF from 'jspdf';
 import type { Invoice, ShopInfo } from '../types';
 
 /**
+ * Builds a beautifully formatted, official Arabic WhatsApp text receipt
+ */
+export function buildWhatsAppInvoiceText(invoice: Invoice, shopInfo?: ShopInfo | null): string {
+  const shopName = shopInfo?.name || 'محل الذهب والمجوهرات';
+  const ownerName = shopInfo?.owner_name || '';
+  const phones = shopInfo?.phone || '';
+  const isSale = invoice.invoice_type === 'sale';
+
+  const d = invoice.created_at ? new Date(invoice.created_at) : new Date();
+  const dateStr = d.toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timeStr = d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+  let text = `👑 *${shopName}* 👑\n`;
+  if (ownerName) text += `بإدارة: ${ownerName}\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📄 *فاتورة ${isSale ? 'بيع مصوغات' : 'شراء كسر'} رسمية معتمدة*\n`;
+  text += `🔢 *رقم الفاتورة:* ${invoice.invoice_number}\n`;
+  text += `📅 *التاريخ:* ${dateStr} - ${timeStr}\n`;
+  text += `👤 *العميل:* ${invoice.customer_name || 'عميل نقدي'}\n`;
+  if (invoice.customer_national_id) {
+    text += `🆔 *الرقم القومي:* ${invoice.customer_national_id}\n`;
+  }
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📋 *بيان المصوغات والأصناف:*\n`;
+
+  (invoice.items || []).forEach((item, idx) => {
+    const net = item.net_weight || 0;
+    text += `${idx + 1}️⃣ *${item.item_name}* (عيار ${item.karat}k)\n`;
+    text += `   ⚖️ الوزن: ${net.toFixed(2)} جرام`;
+    if (item.total_item_price) {
+      text += ` | 💰 ${item.total_item_price.toLocaleString()} ج.م`;
+    }
+    text += `\n`;
+  });
+
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `⚖️ *إجمالي الوزن الصافي:* ${invoice.total_net_weight.toFixed(2)} جرام\n`;
+  text += `✨ *المعادل عيار 21:* ${invoice.equivalent_21k_weight.toFixed(2)} جرام\n`;
+  if (invoice.discount && invoice.discount > 0) {
+    text += `🔻 *الخصم / القديم المستبدل:* -${invoice.discount.toLocaleString()} ج.م\n`;
+  }
+  text += `💰 *الإجمالي الصافي:* ${invoice.final_amount.toLocaleString()} ج.م\n`;
+  text += `💵 *المسدد:* ${(invoice.paid_amount ?? invoice.final_amount).toLocaleString()} ج.م\n`;
+
+  if ((invoice.remaining_amount || 0) > 0) {
+    text += `⚠️ *المتبقي على العميل:* ${(invoice.remaining_amount || 0).toLocaleString()} ج.م\n`;
+  } else {
+    text += `✅ *حالة السداد:* مسدد بالكامل\n`;
+  }
+
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📜 *ملاحظة:* جميع المصوغات مدموغة ومطابقة للمواصفات القانونية المصرية.\n`;
+  if (phones) text += `📞 *تليفون المحل:* ${phones}\n`;
+  text += `🙏 *يسعدنا دائماً خدمتكم وتشريفكم لنا.*`;
+
+  return text;
+}
+
+/**
+ * Sends the invoice text directly via WhatsApp without DOM manipulation or black screens
+ */
+export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | null): void {
+  const text = buildWhatsAppInvoiceText(invoice, shopInfo);
+  const rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
+  const phoneParam = rawPhone ? (rawPhone.startsWith('0') ? `2${rawPhone}` : rawPhone) : '';
+
+  const encoded = encodeURIComponent(text);
+  const url = phoneParam
+    ? `https://api.whatsapp.com/send?phone=${phoneParam}&text=${encoded}`
+    : `https://api.whatsapp.com/send?text=${encoded}`;
+
+  // Safe navigation: on mobile devices use window.location.href to trigger WhatsApp directly
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isMobile) {
+    window.location.href = url;
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+/**
  * Generates a high-resolution PDF Blob from a rendered DOM element
  */
 export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | null> {
@@ -12,15 +93,9 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
     return null;
   }
 
-  // Ensure element is visible during capture
-  const originalDisplay = element.style.display;
-  const originalVisibility = element.style.visibility;
-  element.style.display = 'block';
-  element.style.visibility = 'visible';
-
   try {
     const canvas = await html2canvas(element, {
-      scale: 2.5, // Crisp high-DPI rendering for text and borders
+      scale: 2.5,
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',
@@ -56,16 +131,13 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
     const pdfWidth = 210 - (margin * 2); // 198mm
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
-    // Place at the top of A4 (Half A4 size: ~135mm - 142mm)
+    // Place at top half of A4
     pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth, pdfHeight);
 
     return pdf.output('blob');
   } catch (err) {
     console.error('Error generating PDF:', err);
     return null;
-  } finally {
-    element.style.display = originalDisplay;
-    element.style.visibility = originalVisibility;
   }
 }
 
@@ -74,7 +146,10 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
  */
 export async function downloadInvoicePDF(elementId: string, invoiceNumber: string): Promise<boolean> {
   const blob = await generateInvoicePDFBlob(elementId);
-  if (!blob) return false;
+  if (!blob) {
+    alert('تعذر إنشاء ملف الـ PDF. يمكنك استخدام زر الطباعة (نصف A4) أو إرسال الفاتورة عبر واتساب.');
+    return false;
+  }
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -85,73 +160,4 @@ export async function downloadInvoicePDF(elementId: string, invoiceNumber: strin
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
   return true;
-}
-
-/**
- * Sends/Shares the Invoice via WhatsApp as a PDF file
- */
-export async function shareInvoiceViaWhatsApp(
-  elementId: string,
-  invoice: Invoice,
-  shopInfo?: ShopInfo | null
-): Promise<void> {
-  const shopName = shopInfo?.name || 'مجوهرات الهدى';
-  const blob = await generateInvoicePDFBlob(elementId);
-  if (!blob) {
-    alert('حدث خطأ أثناء إنشاء ملف الـ PDF');
-    return;
-  }
-
-  const filename = `فاتورة-${invoice.invoice_number}.pdf`;
-  const pdfFile = new File([blob], filename, { type: 'application/pdf' });
-
-  // 1. Mobile & Web Share API support (directly opens WhatsApp with file attached)
-  const nav = navigator as any;
-  if (nav.canShare && nav.canShare({ files: [pdfFile] })) {
-    try {
-      await nav.share({
-        files: [pdfFile],
-        title: `فاتورة ${shopName}`,
-        text: `مرحباً ${invoice.customer_name}، إليك فاتورتك الرسمية المعتمدة رقم ${invoice.invoice_number} من ${shopName}.`,
-      });
-      return;
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.warn('Web Share failed, falling back to download:', err);
-      } else {
-        return; // user cancelled share
-      }
-    }
-  }
-
-  // 2. Desktop Fallback:
-  // Auto-download the PDF so the user has it ready
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-
-  // Open WhatsApp chat directly with summary
-  const rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
-  if (!rawPhone) {
-    alert('تم تحميل الفاتورة بصيغة PDF بنجاح! لم يُسجل رقم هاتف للعميل لفتح واتساب.');
-    return;
-  }
-
-  const phoneWithCountry = rawPhone.startsWith('0') ? `2${rawPhone}` : rawPhone;
-  const textMsg = `مرحباً ${invoice.customer_name}،
-شكراً لتعاملك مع ${shopName}.
-فاتورتك رقم: ${invoice.invoice_number}
-نوع الفاتورة: ${invoice.invoice_type === 'sale' ? 'فاتورة بيع ذهب ومجوهرات' : 'فاتورة شراء كسر'}
-إجمالي الوزن الصافي: ${invoice.total_net_weight.toFixed(3)} جرام
-المبلغ الإجمالي: ${invoice.final_amount.toLocaleString()} ج.م
-المسدد: ${(invoice.paid_amount ?? invoice.final_amount).toLocaleString()} ج.م${(invoice.remaining_amount || 0) > 0 ? `\nالمتبقي: ${(invoice.remaining_amount || 0).toLocaleString()} ج.م` : ''}
-
-📄 تم حفظ نسخة الفاتورة الرسمية (PDF) على جهازك للإرسال في المحادثة.`;
-
-  window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`, '_blank');
 }

@@ -71,7 +71,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
   const [tab, setTab] = useState<TabKey>('new');
   const [search, setSearch] = useState('');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
-  const [resetScope, setResetScope] = useState<'in_stock' | 'all'>('in_stock');
+  const [resetScope, setResetScope] = useState<'in_stock' | 'all'>('all');
   const [resetConfirmInput, setResetConfirmInput] = useState('');
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -89,7 +89,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
       setIsResetModalOpen(false);
       setResetConfirmInput('');
       await loadAll();
-      alert(`تم تصفير المخزن بنجاح! تم مسح/تصفير ${res.deleted_count || 0} سجل.`);
+      alert(res.message || 'تم تصفير المخزن والنقدية بالكامل بنجاح!');
     } else {
       setResetError(res.error || 'فشل تصفير المخزن');
     }
@@ -861,7 +861,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
             </div>
 
             <div className="bg-rose-950/30 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200 leading-relaxed">
-              ⚠️ <strong>تحذير أمني ومحاسبي:</strong> هذه العملية ستقوم بتصفير أرصدة الذهب في المخزن ومسح قطع المخزون ليصبح الرصيد 0.00 جرام.
+              ⚠️ <strong>تحذير أمني ومحاسبي:</strong> هذه العملية ستقوم بتصفير المخزن (القطع والجرامات = 0) وتصفير رصيد النقدية والخزينة تماماً ليصبح 0.00 ج.م.
             </div>
 
             <div className="space-y-2">
@@ -876,8 +876,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
-                  <div className="font-bold">الذهب القائم فقط</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">تصفير الأرصدة الحالية المعروضة</div>
+                  <div className="font-bold">تصفير المعروض + النقدية</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">تصفير قطع العرض وتصفير الخزينة</div>
                 </button>
                 <button
                   type="button"
@@ -888,8 +888,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
-                  <div className="font-bold">تصفير شامل</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">مسح الأرصدة القائمة والمباع</div>
+                  <div className="font-bold">تصفير شامل (مخزن + نقدية)</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">مسح المخزن وتصفير الخزينة 0 ج.م</div>
                 </button>
               </div>
             </div>

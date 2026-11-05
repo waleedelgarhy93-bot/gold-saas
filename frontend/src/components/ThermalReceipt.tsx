@@ -9,12 +9,12 @@ interface ThermalReceiptProps {
 export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInfo }) => {
   if (!invoice) return null;
 
-  const shopName = shopInfo?.name || 'مجوهرات الهدى';
-  const ownerName = shopInfo?.owner_name || 'أ/ طه رجب';
-  const shopAddress = shopInfo?.address || 'شارع الصاغة، سمالوط، المنيا';
-  const commRecord = shopInfo?.commercial_record || '45892';
-  const taxId = shopInfo?.tax_number || '100-245-889';
-  const phones = shopInfo?.phone || '01141034439 - 01226398474';
+  const shopName = shopInfo?.name || 'محل الذهب والمجوهرات';
+  const ownerName = shopInfo?.owner_name || 'إدارة المحل';
+  const shopAddress = shopInfo?.address || 'شارع الصاغة، مصر';
+  const commRecord = shopInfo?.commercial_record || '—';
+  const taxId = shopInfo?.tax_number || '—';
+  const phones = shopInfo?.phone || '';
 
   const isSale = invoice.invoice_type === 'sale';
   const invoiceDate = invoice.created_at ? new Date(invoice.created_at) : new Date();

@@ -54,12 +54,19 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchGoldPrices().then(setPrices);
-    fetchShopInfo().then(setShopInfo);
-  }, []);
+    if (currentUser?.shop_id) {
+      fetchShopInfo(currentUser.shop_id).then(setShopInfo);
+    } else {
+      fetchShopInfo().then(setShopInfo);
+    }
+  }, [currentUser?.shop_id]);
 
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('gold_user', JSON.stringify(user));
+    if (user.shop_id) {
+      fetchShopInfo(user.shop_id).then(setShopInfo);
+    }
     if (user.role === 'super_admin') {
       setActiveTab('superadmin');
     } else {
@@ -111,7 +118,7 @@ export const App: React.FC = () => {
     );
   }
 
-  const currentShopName = shopInfo?.name || currentUser.shop_name || 'مجوهرات الهدى';
+  const currentShopName = shopInfo?.name || currentUser.shop_name || 'محل الذهب والمجوهرات';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">

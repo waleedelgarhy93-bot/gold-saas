@@ -75,28 +75,52 @@ export async function loginAPI(username: string, password: string): Promise<{ su
   return { success: false, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' };
 }
 
-export async function fetchShopInfo(): Promise<ShopInfo> {
+export async function fetchShopInfo(shopId?: number): Promise<ShopInfo> {
+  const targetId = shopId || (() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+      return u.shop_id || 1;
+    } catch { return 1; }
+  })();
+
   try {
-    const res = await fetch(`${API_BASE}/shop`);
-    if (res.ok) return await res.json();
+    const res = await fetch(`${API_BASE}/shop?shop_id=${targetId}`);
+    if (res.ok) {
+      const data = await res.json();
+      localStorage.setItem(`gold_shop_info_${targetId}`, JSON.stringify(data));
+      localStorage.setItem('gold_shop_info', JSON.stringify(data));
+      return data;
+    }
   } catch (e) {
     console.warn('Backend fetchShopInfo offline:', e);
   }
-  const saved = localStorage.getItem('gold_shop_info');
-  return saved ? JSON.parse(saved) : {
-    id: 1,
-    name: 'مجوهرات الهدى',
-    owner_name: 'أ/ طه رجب',
-    phone: '01141034439 - 01226398474',
-    address: 'شارع الصاغة، سمالوط، المنيا',
-    commercial_record: '45892',
-    tax_number: '100-245-889',
+
+  const saved = localStorage.getItem(`gold_shop_info_${targetId}`) || localStorage.getItem('gold_shop_info');
+  if (saved) return JSON.parse(saved);
+
+  let fallbackName = 'محل الذهب والمجوهرات';
+  let fallbackOwner = 'صاحب المحل';
+  try {
+    const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+    if (u.shop_name) fallbackName = u.shop_name;
+    if (u.name) fallbackOwner = u.name.replace(/\s*\(.*?\)/, '');
+  } catch {}
+
+  return {
+    id: targetId,
+    name: fallbackName,
+    owner_name: fallbackOwner,
+    phone: '',
+    address: 'شارع الصاغة، مصر',
+    commercial_record: '—',
+    tax_number: '—',
     subscription_plan: 'الباقة الماسية (سنوي)',
     is_active: true,
   };
 }
 
 export async function updateShopInfoAPI(shopData: {
+  id?: number;
   name: string;
   owner_name: string;
   phone: string;
@@ -104,12 +128,14 @@ export async function updateShopInfoAPI(shopData: {
   commercial_record: string;
   tax_number: string;
 }): Promise<boolean> {
+  const targetId = shopData.id || 1;
+  localStorage.setItem(`gold_shop_info_${targetId}`, JSON.stringify(shopData));
   localStorage.setItem('gold_shop_info', JSON.stringify(shopData));
   try {
-    const res = await fetch(`${API_BASE}/shop`, {
+    const res = await fetch(`${API_BASE}/shop?shop_id=${targetId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(shopData),
+      body: JSON.stringify({ ...shopData, id: targetId, shop_id: targetId }),
     });
     return res.ok;
   } catch (e) {
@@ -445,18 +471,23 @@ export async function deleteInventoryItem(id: number): Promise<{ ok: boolean; er
   }
 }
 
-export async function resetInventoryAPI(scope: 'in_stock' | 'all' = 'in_stock'): Promise<{ ok: boolean; deleted_count?: number; error?: string }> {
+export async function resetInventoryAPI(scope: 'in_stock' | 'all' = 'all'): Promise<{ ok: boolean; deleted_count?: number; message?: string; error?: string }> {
   try {
+    let shopId = 1;
+    try {
+      const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+      if (u.shop_id) shopId = u.shop_id;
+    } catch {}
     const res = await fetch(`${API_BASE}/inventory/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope }),
+      body: JSON.stringify({ scope, shop_id: shopId }),
     });
     if (res.ok) {
       const data = await res.json();
-      return { ok: true, deleted_count: data.deleted_count };
+      return { ok: true, deleted_count: data.deleted_count, message: data.message };
     }
-    return { ok: false, error: await readError(res, 'تعذر تصفير المخزن') };
+    return { ok: false, error: await readError(res, 'تعذر تصفير المخزن والنقدية') };
   } catch (e) {
     console.warn('Error resetting inventory:', e);
     return { ok: false, error: 'تعذر الاتصال بالخادم' };

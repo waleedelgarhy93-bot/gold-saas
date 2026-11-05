@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Invoice, ShopInfo } from '../types';
 import { fetchInvoices, payInvoiceAPI, deleteInvoiceAPI } from '../api';
-import { downloadInvoicePDF, shareInvoiceViaWhatsApp } from '../utils/pdfGenerator';
+import { downloadInvoicePDF, sendInvoiceViaWhatsApp } from '../utils/pdfGenerator';
 import { 
   Search, Printer, FileText, ShoppingBag, ArrowDownLeft, Wallet, X, 
   Trash2, Eye, Calendar, Clock, RefreshCw, CheckCircle2, AlertCircle,
@@ -150,13 +150,8 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
     }, 150);
   };
 
-  const handleShareWhatsApp = async (inv: Invoice) => {
-    if (onSelectInvoiceForPrint) {
-      onSelectInvoiceForPrint(inv);
-    }
-    setTimeout(async () => {
-      await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', inv, shopInfo);
-    }, 150);
+  const handleShareWhatsApp = (inv: Invoice) => {
+    sendInvoiceViaWhatsApp(inv, shopInfo);
   };
 
   const openPayment = (inv: Invoice) => {
@@ -592,7 +587,7 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                           <button
                             onClick={() => handleShareWhatsApp(inv)}
                             className="p-1.5 hover:bg-emerald-950/60 text-slate-300 hover:text-emerald-400 rounded-lg transition cursor-pointer"
-                            title="إرسال الفاتورة عبر واتساب (PDF)"
+                            title="إرسال الفاتورة عبر واتساب"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -771,7 +766,7 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                   title="إرسال عبر واتساب كملف PDF"
                 >
                   <Send className="w-4 h-4" />
-                  <span>واتساب (PDF)</span>
+                  <span>واتساب</span>
                 </button>
                 <button
                   onClick={() => setDetailsInvoice(null)}

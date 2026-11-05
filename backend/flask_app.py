@@ -21,7 +21,7 @@ from services.inventory_logic import (
     get_latest_prices, buy_price_for_karat, fetch_live_prices,
     upsert_customer, apply_invoice_inventory_effects,
     capital_summary, cash_balance, inventory_item_to_dict,
-    customer_with_stats, ensure_default_types, reconcile_past_invoices,
+    customer_with_stats, ensure_default_types, reconcile_past_invoices, _sum,
 )
 
 # Initialize database & reconcile inventory
@@ -83,15 +83,17 @@ def login():
         if user and user.is_active:
             if user.password == raw_password or raw_password == "123":
                 shop = db.query(Shop).filter(Shop.id == user.shop_id).first() if user.shop_id else None
+                shop_name = shop.name if shop else "محل الذهب والمجوهرات"
+                owner_name = user.name or (f"{shop.owner_name} (صاحب المحل)" if shop else "صاحب المحل")
                 return jsonify({
                     "success": True,
                     "user": {
                         "id": user.id,
-                        "name": user.name or "أ/ طه رجب (مجوهرات الهدى)",
+                        "name": owner_name,
                         "username": user.username,
                         "role": user.role,
-                        "shop_id": user.shop_id or 1,
-                        "shop_name": shop.name if shop else "مجوهرات الهدى",
+                        "shop_id": user.shop_id or (shop.id if shop else 1),
+                        "shop_name": shop_name,
                         "is_active": user.is_active
                     }
                 })
@@ -140,15 +142,18 @@ def login():
 
         if matched_key and (raw_password == demo_accounts[matched_key]["password"] or raw_password == "123"):
             acc = demo_accounts[matched_key]
+            shop = db.query(Shop).filter(Shop.id == acc["shop_id"]).first() if acc.get("shop_id") else None
+            shop_name = shop.name if shop else acc["shop_name"]
+            owner_name = f"{shop.owner_name} (صاحب المحل)" if (shop and acc["role"] == "shop_admin" and shop.owner_name) else acc["name"]
             return jsonify({
                 "success": True,
                 "user": {
                     "id": acc["id"],
-                    "name": acc["name"],
+                    "name": owner_name,
                     "username": acc.get("username", matched_key),
                     "role": acc["role"],
                     "shop_id": acc["shop_id"],
-                    "shop_name": acc["shop_name"],
+                    "shop_name": shop_name,
                     "is_active": True
                 }
             })
@@ -215,8 +220,16 @@ def update_user_credentials():
 def shop_settings():
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        data = request.get_json(force=True, silent=True) or {} if request.method == "PUT" else {}
+        raw_shop_id = data.get("id") or data.get("shop_id") or request.args.get("shop_id")
+        try:
+            shop_id = int(raw_shop_id) if raw_shop_id else 1
+        except (ValueError, TypeError):
+            shop_id = 1
+
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
+        if not shop:
+            shop = db.query(Shop).first()
         if not shop:
             return jsonify({"detail": "المحل غير مسجل"}), 404
 
@@ -236,7 +249,6 @@ def shop_settings():
             })
 
         # PUT update
-        data = request.get_json(force=True, silent=True) or {}
         shop.name = data.get("name", shop.name)
         shop.owner_name = data.get("owner_name", shop.owner_name)
         shop.phone = data.get("phone", shop.phone)
@@ -245,9 +257,10 @@ def shop_settings():
         shop.tax_number = data.get("tax_number", shop.tax_number)
 
         # Update owner user name as well
-        owner_user = db.query(User).filter(User.shop_id == shop.id, User.role == "shop_admin").first()
-        if owner_user:
-            owner_user.name = f"{shop.owner_name} (صاحب المحل)"
+        owner_users = db.query(User).filter(User.shop_id == shop.id).all()
+        for u in owner_users:
+            if u.role == "shop_admin":
+                u.name = f"{shop.owner_name} (صاحب المحل)"
 
         db.commit()
         db.refresh(shop)
@@ -1116,30 +1129,53 @@ def inventory_summary():
 
 @app.route("/api/inventory/reset", methods=["POST"])
 def reset_inventory():
-    """تصفير رصيد المخزن (الأرصدة القائمة أو تصفير شامل)"""
+    """تصفير رصيد المخزن والنقدية بالكامل (تصفير شامل)"""
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
         shop_id = int(data.get("shop_id") or 1)
-        scope = data.get("scope", "in_stock")  # "in_stock" أو "all"
+        scope = data.get("scope", "all")  # "in_stock" أو "all"
 
+        # 1. تصفير قطع المخزن
         query = db.query(InventoryItem).filter(InventoryItem.shop_id == shop_id)
         if scope == "in_stock":
-            # تصفير الأرصدة القائمة فقط
             deleted_count = query.filter(InventoryItem.status == "in_stock").delete(synchronize_session=False)
         else:
-            # تصفير شامل للأرصدة والمباع
             deleted_count = query.delete(synchronize_session=False)
+
+        # 2. تصفير الحركات النقدية اليدوية
+        db.query(CashTransaction).filter(CashTransaction.shop_id == shop_id).delete(synchronize_session=False)
+
+        # 3. في حالة التصفير الشامل: مسح فواتير المحل أيضاً
+        invoices_deleted = 0
+        if scope == "all":
+            inv_ids = [inv.id for inv in db.query(Invoice.id).filter(Invoice.shop_id == shop_id).all()]
+            if inv_ids:
+                db.query(InvoiceItem).filter(InvoiceItem.invoice_id.in_(inv_ids)).delete(synchronize_session=False)
+            invoices_deleted = db.query(Invoice).filter(Invoice.shop_id == shop_id).delete(synchronize_session=False)
+
+        # 4. تصفير النقدية والخزينة = 0.00 ج.م تماماً
+        shop = db.query(Shop).filter(Shop.id == shop_id).first()
+        if shop:
+            if scope == "all":
+                shop.opening_cash = 0.0
+            else:
+                sales_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "sale")
+                buybacks_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "buyback")
+                purchases_paid = _sum(db, InventoryItem.purchase_total, InventoryItem.shop_id == shop_id, InventoryItem.paid_from_cash.is_(True))
+                shop.opening_cash = round(-(sales_paid - buybacks_paid - purchases_paid), 2)
 
         db.commit()
         return jsonify({
             "success": True,
             "deleted_count": deleted_count,
-            "message": f"تم تصفير المخزن بنجاح ({deleted_count} سجل)"
+            "invoices_deleted": invoices_deleted,
+            "cash_balance": 0.0,
+            "message": f"تم تصفير المخزن والنقدية بنجاح! تم تصفير القطع ({deleted_count}) وتصفير رصيد الخزينة بالكامل ليصبح 0.00 ج.م"
         })
     except Exception as e:
         db.rollback()
-        return jsonify({"detail": f"فشل تصفير المخزن: {str(e)}"}), 500
+        return jsonify({"detail": f"فشل تصفير المخزن والنقدية: {str(e)}"}), 500
     finally:
         db.close()
 

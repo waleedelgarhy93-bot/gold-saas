@@ -10,13 +10,13 @@ interface ShopSettingsViewProps {
 
 export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({ currentUser, onShopUpdated }) => {
   const [shop, setShop] = useState<ShopInfo>({
-    id: 1,
-    name: 'مجوهرات الهدى',
-    owner_name: 'أ/ طه رجب',
-    phone: '01141034439 - 01226398474',
-    address: 'شارع الصاغة، سمالوط، المنيا',
-    commercial_record: '45892',
-    tax_number: '100-245-889',
+    id: currentUser.shop_id || 1,
+    name: currentUser.shop_name || 'محل الذهب والمجوهرات',
+    owner_name: currentUser.name ? currentUser.name.replace(/\s*\(.*?\)/, '') : 'صاحب المحل',
+    phone: '',
+    address: '',
+    commercial_record: '',
+    tax_number: '',
   });
 
   const [newPassword, setNewPassword] = useState('');
@@ -28,19 +28,25 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({ currentUser,
   const [passError, setPassError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchShopInfo().then((data) => setShop(data));
-  }, []);
+    fetchShopInfo(currentUser.shop_id || undefined).then((data) => {
+      if (data) setShop(data);
+    });
+  }, [currentUser.shop_id]);
 
   const handleSaveShop = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingShop(true);
     setShopSuccess(false);
 
-    const ok = await updateShopInfoAPI(shop);
+    const payload = {
+      ...shop,
+      id: currentUser.shop_id || shop.id || 1,
+    };
+    const ok = await updateShopInfoAPI(payload);
     setSavingShop(false);
     if (ok) {
       setShopSuccess(true);
-      if (onShopUpdated) onShopUpdated(shop);
+      if (onShopUpdated) onShopUpdated(payload);
       setTimeout(() => setShopSuccess(false), 3000);
     }
   };
