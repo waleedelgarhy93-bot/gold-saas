@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import type { GoldPrices, POSItem, Invoice, InventoryItem } from '../types';
+import type { GoldPrices, POSItem, Invoice, InventoryItem, ShopInfo } from '../types';
 import { 
   Plus, Trash2, ShoppingBag, ArrowDownLeft, Camera, Printer, 
-  Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search
+  Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search, FileDown
 } from 'lucide-react';
 import { createInvoiceAPI, fetchInventory } from '../api';
+import { downloadInvoicePDF, shareInvoiceViaWhatsApp } from '../utils/pdfGenerator';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -12,6 +13,7 @@ interface POSScreenProps {
   scannedCustomer?: { name: string | null; national_id: string | null };
   scannedItem?: { brand: string | null; serial_number: string | null; karat: number; declared_weight: number };
   onInvoiceSaved?: (invoice: Invoice) => void;
+  shopInfo?: ShopInfo | null;
 }
 
 export const POSScreen: React.FC<POSScreenProps> = ({
@@ -20,6 +22,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   scannedCustomer,
   scannedItem,
   onInvoiceSaved,
+  shopInfo,
 }) => {
   const [invoiceType, setInvoiceType] = useState<'sale' | 'buyback'>('sale');
   const [customerName, setCustomerName] = useState('عميل نقدي');
@@ -256,22 +259,32 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     }
   };
 
-  const handleWhatsAppSend = () => {
-    if (!customerPhone) {
-      alert('من فضلك أدخل رقم هاتف العميل أولاً');
+  const handleWhatsAppSend = async () => {
+    if (!customerPhone && !successInvoice?.customer_phone) {
+      alert('من فضلك أدخل رقم هاتف العميل أولاً لإرسال الفاتورة عبر واتساب');
       return;
     }
-    const cleanPhone = customerPhone.replace(/\D/g, '');
-    const phoneWithCountry = cleanPhone.startsWith('0') ? `2${cleanPhone}` : cleanPhone;
-    const msg = `مرحباً ${customerName}، شكراً لتعاملك مع مجوهرات الأمانة الذهبية.
-فاتورتك رقم: ${successInvoice?.invoice_number || 'قيد الإصدار'}
-نوع الفاتورة: ${invoiceType === 'sale' ? 'فاتورة بيع ذهب جديد' : 'فاتورة شراء كسر'}
-إجمالي الوزن الصافي: ${totalNetWeight.toFixed(2)} جرام
-المبلغ الإجمالي: ${finalTotal.toLocaleString()} ج.م
-المسدد: ${effectivePaid.toLocaleString()} ج.م${remainingAmount > 0 ? `\nالباقي: ${remainingAmount.toLocaleString()} ج.م` : ''}
-يسعدنا دائماً خدمتكم.`;
 
-    window.open(`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`, '_blank');
+    if (successInvoice) {
+      await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', successInvoice, shopInfo);
+      return;
+    }
+
+    if (items.length === 0) {
+      alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة أولاً');
+      return;
+    }
+
+    try {
+      await handleSaveInvoice(false);
+      setTimeout(async () => {
+        if (successInvoice) {
+          await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', successInvoice, shopInfo);
+        }
+      }, 600);
+    } catch (e) {
+      console.warn('Error sharing after save:', e);
+    }
   };
 
   const handleReset = () => {
@@ -309,20 +322,34 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => window.print()}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
+              className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow"
+              title="طباعة الفاتورة بنظام نصف صفحة A4 المعتمد"
             >
               <Printer className="w-4 h-4" />
-              <span>طباعة حرارية</span>
+              <span>طباعة (نصف A4)</span>
+            </button>
+            <button
+              onClick={() => {
+                if (successInvoice) {
+                  downloadInvoicePDF('half-a4-invoice-receipt', successInvoice.invoice_number);
+                }
+              }}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold px-3 py-1.5 rounded-lg text-xs border border-amber-500/40 transition cursor-pointer"
+              title="تحميل الفاتورة كملف PDF رسمي بحجم نصف A4"
+            >
+              <FileDown className="w-4 h-4" />
+              <span>تحميل PDF</span>
             </button>
             <button
               onClick={handleWhatsAppSend}
-              className="flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow"
+              title="إرسال الفاتورة عبر واتساب كملف PDF"
             >
               <Send className="w-4 h-4" />
-              <span>واتساب</span>
+              <span>واتساب (PDF)</span>
             </button>
             <button
               onClick={handleReset}

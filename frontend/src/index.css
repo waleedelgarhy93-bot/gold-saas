@@ -27,10 +27,16 @@
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
+  }
   body {
-    direction: rtl;
+    direction: rtl !important;
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   .no-print {
     display: none !important;

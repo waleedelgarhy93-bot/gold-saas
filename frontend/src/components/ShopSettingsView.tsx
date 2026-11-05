@@ -11,9 +11,9 @@ interface ShopSettingsViewProps {
 export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({ currentUser, onShopUpdated }) => {
   const [shop, setShop] = useState<ShopInfo>({
     id: 1,
-    name: 'مجوهرات الأمانة الذهبية',
-    owner_name: 'أ/ وليد المقدم',
-    phone: '01012345678',
+    name: 'مجوهرات الهدى',
+    owner_name: 'أ/ طه رجب',
+    phone: '01141034439 - 01226398474',
     address: 'شارع الصاغة، سمالوط، المنيا',
     commercial_record: '45892',
     tax_number: '100-245-889',

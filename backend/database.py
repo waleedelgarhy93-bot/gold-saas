@@ -44,9 +44,9 @@ Base = declarative_base()
 class Shop(Base):
     __tablename__ = "shops"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), default="مجوهرات الأمانة الذهبية")
-    owner_name = Column(String(100), default="أ/ وليد المقدم")
-    phone = Column(String(20), default="01012345678")
+    name = Column(String(100), default="مجوهرات الهدى")
+    owner_name = Column(String(100), default="أ/ طه رجب")
+    phone = Column(String(50), default="01141034439 - 01226398474")
     address = Column(String(200), default="شارع الصاغة، سمالوط، المنيا")
     commercial_record = Column(String(50), default="45892")
     tax_number = Column(String(50), default="100-245-889")
@@ -278,16 +278,22 @@ def _seed_defaults():
         shop = db.query(Shop).first()
         if not shop:
             shop = Shop(
-                name="مجوهرات الأمانة الذهبية",
-                owner_name="أ/ وليد المقدم",
-                phone="01012345678",
-                address="المنيا - مصر",
+                name="مجوهرات الهدى",
+                owner_name="أ/ طه رجب",
+                phone="01141034439 - 01226398474",
+                address="شارع الصاغة، سمالوط، المنيا",
                 commercial_record="45892",
                 tax_number="100-245-889"
             )
             db.add(shop)
             db.commit()
             db.refresh(shop)
+        elif "الأمانة" in (shop.name or ""):
+            shop.name = "مجوهرات الهدى"
+            shop.owner_name = "أ/ طه رجب"
+            shop.phone = "01141034439 - 01226398474"
+            shop.address = "شارع الصاغة، سمالوط، المنيا"
+            db.commit()
 
         # Always ensure standard system users exist with correct credentials
         for u_data in [

@@ -111,7 +111,7 @@ export const App: React.FC = () => {
     );
   }
 
-  const currentShopName = shopInfo?.name || currentUser.shop_name || 'مجوهرات الأمانة الذهبية';
+  const currentShopName = shopInfo?.name || currentUser.shop_name || 'مجوهرات الهدى';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
@@ -143,6 +143,7 @@ export const App: React.FC = () => {
             scannedCustomer={scannedCustomer}
             scannedItem={scannedItem}
             onInvoiceSaved={(inv) => setActiveInvoice(inv)}
+            shopInfo={shopInfo}
           />
         )}
 
@@ -151,7 +152,10 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === 'invoices' && (
-          <InvoicesListView onSelectInvoiceForPrint={(inv) => setActiveInvoice(inv)} />
+          <InvoicesListView
+            onSelectInvoiceForPrint={(inv) => setActiveInvoice(inv)}
+            shopInfo={shopInfo}
+          />
         )}
 
         {activeTab === 'daily' && currentUser.role !== 'cashier' && (

@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import type { Invoice } from '../types';
+import type { Invoice, ShopInfo } from '../types';
 import { fetchInvoices, payInvoiceAPI, deleteInvoiceAPI } from '../api';
+import { downloadInvoicePDF, shareInvoiceViaWhatsApp } from '../utils/pdfGenerator';
 import { 
   Search, Printer, FileText, ShoppingBag, ArrowDownLeft, Wallet, X, 
   Trash2, Eye, Calendar, Clock, RefreshCw, CheckCircle2, AlertCircle,
-  Coins
+  Coins, FileDown, Send
 } from 'lucide-react';
 
 interface InvoicesListViewProps {
   onSelectInvoiceForPrint?: (invoice: Invoice) => void;
+  shopInfo?: ShopInfo | null;
 }
 
-export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvoiceForPrint }) => {
+export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvoiceForPrint, shopInfo }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -137,6 +139,24 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
       onSelectInvoiceForPrint(inv);
     }
     setTimeout(() => window.print(), 200);
+  };
+
+  const handleDownloadPDF = async (inv: Invoice) => {
+    if (onSelectInvoiceForPrint) {
+      onSelectInvoiceForPrint(inv);
+    }
+    setTimeout(async () => {
+      await downloadInvoicePDF('half-a4-invoice-receipt', inv.invoice_number);
+    }, 150);
+  };
+
+  const handleShareWhatsApp = async (inv: Invoice) => {
+    if (onSelectInvoiceForPrint) {
+      onSelectInvoiceForPrint(inv);
+    }
+    setTimeout(async () => {
+      await shareInvoiceViaWhatsApp('half-a4-invoice-receipt', inv, shopInfo);
+    }, 150);
   };
 
   const openPayment = (inv: Invoice) => {
@@ -556,9 +576,25 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                           <button
                             onClick={() => handlePrint(inv)}
                             className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-amber-400 rounded-lg transition cursor-pointer"
-                            title="طباعة إيصال الفاتورة الحراري"
+                            title="طباعة الفاتورة بنظام نصف A4"
                           >
                             <Printer className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            onClick={() => handleDownloadPDF(inv)}
+                            className="p-1.5 hover:bg-slate-800 text-slate-300 hover:text-amber-400 rounded-lg transition cursor-pointer"
+                            title="تحميل الفاتورة كملف PDF"
+                          >
+                            <FileDown className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            onClick={() => handleShareWhatsApp(inv)}
+                            className="p-1.5 hover:bg-emerald-950/60 text-slate-300 hover:text-emerald-400 rounded-lg transition cursor-pointer"
+                            title="إرسال الفاتورة عبر واتساب (PDF)"
+                          >
+                            <Send className="w-4 h-4" />
                           </button>
 
                           {isAdmin && (
@@ -712,13 +748,30 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                 </button>
               ) : <div />}
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => handlePrint(detailsInvoice)}
-                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition cursor-pointer shadow-lg shadow-amber-500/20"
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-2 rounded-xl text-xs transition cursor-pointer shadow-lg shadow-amber-500/20"
+                  title="طباعة الفاتورة بحجم نصف صفحة A4"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>طباعة الإيصال الحراري</span>
+                  <span>طباعة (نصف A4)</span>
+                </button>
+                <button
+                  onClick={() => handleDownloadPDF(detailsInvoice)}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold px-3 py-2 rounded-xl text-xs transition cursor-pointer"
+                  title="تحميل كملف PDF رسمي"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>تحميل PDF</span>
+                </button>
+                <button
+                  onClick={() => handleShareWhatsApp(detailsInvoice)}
+                  className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-3 py-2 rounded-xl text-xs transition cursor-pointer shadow"
+                  title="إرسال عبر واتساب كملف PDF"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>واتساب (PDF)</span>
                 </button>
                 <button
                   onClick={() => setDetailsInvoice(null)}

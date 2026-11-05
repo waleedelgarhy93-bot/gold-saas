@@ -52,11 +52,11 @@ export async function loginAPI(username: string, password: string): Promise<{ su
       success: true,
       user: {
         id: 2,
-        name: 'أ/ وليد المقدم (صاحب المحل)',
+        name: 'أ/ طه رجب (صاحب المحل)',
         username: 'admin',
         role: 'shop_admin',
         shop_id: 1,
-        shop_name: 'مجوهرات الأمانة الذهبية'
+        shop_name: 'مجوهرات الهدى'
       }
     };
   } else if (username === 'cashier' && password === '123') {
@@ -68,7 +68,7 @@ export async function loginAPI(username: string, password: string): Promise<{ su
         username: 'cashier',
         role: 'cashier',
         shop_id: 1,
-        shop_name: 'مجوهرات الأمانة الذهبية'
+        shop_name: 'مجوهرات الهدى'
       }
     };
   }
@@ -85,9 +85,9 @@ export async function fetchShopInfo(): Promise<ShopInfo> {
   const saved = localStorage.getItem('gold_shop_info');
   return saved ? JSON.parse(saved) : {
     id: 1,
-    name: 'مجوهرات الأمانة الذهبية',
-    owner_name: 'أ/ وليد المقدم',
-    phone: '01012345678',
+    name: 'مجوهرات الهدى',
+    owner_name: 'أ/ طه رجب',
+    phone: '01141034439 - 01226398474',
     address: 'شارع الصاغة، سمالوط، المنيا',
     commercial_record: '45892',
     tax_number: '100-245-889',
@@ -286,7 +286,7 @@ export async function fetchSubscriberShops(): Promise<SubscriberShop[]> {
     console.warn('Backend fetchSubscriberShops offline:', e);
   }
   return [
-    { id: 1, name: 'مجوهرات الأمانة الذهبية', owner_name: 'أ/ وليد المقدم', phone: '01012345678', address: 'المنيا - سمالوط', subscription_plan: 'الباقة الماسية (سنوي)', is_active: true, total_invoices: 12, total_staff: 3, owner_username: 'admin', created_at: '2026-01-15' },
+    { id: 1, name: 'مجوهرات الهدى', owner_name: 'أ/ طه رجب', phone: '01141034439 - 01226398474', address: 'شارع الصاغة، سمالوط، المنيا', subscription_plan: 'الباقة الماسية (سنوي)', is_active: true, total_invoices: 12, total_staff: 3, owner_username: 'admin', created_at: '2026-01-15' },
     { id: 2, name: 'مجوهرات الزمرد والذهب', owner_name: 'حاج إبراهيم رضوان', phone: '01122334455', address: 'المنيا - شارع التجارة', subscription_plan: 'باقة البريميوم (شهري)', is_active: true, total_invoices: 45, total_staff: 4, owner_username: 'radwan_gold', created_at: '2026-02-10' },
     { id: 3, name: 'صاغة النيل الجديدة', owner_name: 'كيرلس سمير', phone: '01299887766', address: 'أسيوط - الصاغة', subscription_plan: 'الباقة الماسية (سنوي)', is_active: true, total_invoices: 89, total_staff: 5, owner_username: 'nile_gold', created_at: '2026-03-01' },
   ];
