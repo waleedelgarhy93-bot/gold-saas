@@ -244,3 +244,31 @@ export interface AuditReportData {
     karat_breakdown: Record<number, { sold_net_grams: number; bought_net_grams: number }>;
   };
 }
+
+export interface TrustItem {
+  id: number;
+  shop_id: number;
+  trust_type: 'gold' | 'cash';
+  customer_name: string;
+  customer_phone?: string;
+  customer_national_id?: string;
+  item_description?: string;
+  karat?: number;
+  gross_weight?: number;
+  net_weight?: number;
+  cash_amount?: number;
+  status: 'held' | 'returned' | 'settled';
+  expected_return_date?: string;
+  notes?: string;
+  settled_notes?: string;
+  created_at: string;
+  settled_at?: string;
+}
+
+export interface TrustSummary {
+  active_gold_count: number;
+  total_gold_weight: number;
+  gold_by_karat: Record<string, number>;
+  active_cash_count: number;
+  total_cash_amount: number;
+}

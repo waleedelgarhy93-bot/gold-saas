@@ -216,6 +216,34 @@ class CashTransaction(Base):
     created_by_user_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+class TrustItem(Base):
+    """مخزن الأمانات والودائع (ذهب أو نقدية) - معزول تماماً عن مخزن ورأس مال المحل"""
+    __tablename__ = "trust_items"
+    id = Column(Integer, primary_key=True, index=True)
+    shop_id = Column(Integer, ForeignKey("shops.id"), default=1, index=True)
+    trust_type = Column(String(10), default="gold", index=True)  # "gold" | "cash"
+    customer_name = Column(String(100), nullable=False)
+    customer_phone = Column(String(50), nullable=True)
+    customer_national_id = Column(String(30), nullable=True)
+
+    # أمانات الذهب
+    item_description = Column(String(200), nullable=True)
+    karat = Column(Integer, default=21)
+    gross_weight = Column(Float, default=0.0)
+    net_weight = Column(Float, default=0.0)
+
+    # أمانات النقدية
+    cash_amount = Column(Float, default=0.0)
+
+    # الحالة والمواعيد
+    status = Column(String(20), default="held", index=True)  # "held" (أمانة جارية) | "returned" (تم الرد/التسليم) | "settled" (تمت التسوية)
+    expected_return_date = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    settled_notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    settled_at = Column(DateTime, nullable=True)
+
 DEFAULT_JEWELRY_TYPES = [
     "غوايش", "خواتم", "سلاسل", "حلقان", "أسورة", "دبل",
     "سبائك", "جنيهات ذهب", "كسر ومستعمل",

@@ -364,29 +364,38 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
       {/* Mode Selector Tabs (Sale vs Buyback) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/90 p-2 sm:p-2.5 rounded-2xl border border-slate-800 shadow-lg">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full sm:w-auto">
           <button
             onClick={() => { setInvoiceType('sale'); setPriceInput(''); setSelectedStock(null); }}
-            className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
+            className={`flex items-center justify-center gap-2.5 px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'sale'
-                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/40'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800'
             }`}
           >
             <ShoppingBag className="w-4 h-4 shrink-0" />
-            <span>بيع ذهب جديد</span>
+            <div className="text-right">
+              <span className="block leading-tight font-extrabold">فاتورة بيع ذهب للزبون</span>
+              <span className="text-[10px] opacity-75 font-normal">بيع مصوغات (خصم من المخزن)</span>
+            </div>
           </button>
 
           <button
             onClick={() => { setInvoiceType('buyback'); setPriceInput(''); setSelectedStock(null); }}
-            className={`flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
+            className={`flex items-center justify-center gap-2.5 px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition cursor-pointer text-center ${
               invoiceType === 'buyback'
-                ? 'bg-gradient-to-r from-rose-500 to-rose-600 text-white shadow-lg shadow-rose-500/25'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/50'
+                : 'text-emerald-400 hover:text-white hover:bg-slate-800 border border-emerald-500/30'
             }`}
           >
             <ArrowDownLeft className="w-4 h-4 shrink-0" />
-            <span>شراء كسر / مستعمل</span>
+            <div className="text-right">
+              <span className="block leading-tight font-extrabold flex items-center gap-1.5">
+                <span>منفذ شراء كسر من عميل</span>
+                <span className="text-[9px] bg-emerald-400/30 text-emerald-100 px-1.5 py-0.2 rounded font-sans">إيداع للمخزن</span>
+              </span>
+              <span className="text-[10px] opacity-90 font-normal">المحل يشتري كسر (يُضاف للمخزن فوراً)</span>
+            </div>
           </button>
         </div>
 
@@ -411,6 +420,25 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           </button>
         </div>
       </div>
+
+      {invoiceType === 'buyback' && (
+        <div className="bg-gradient-to-r from-emerald-950/60 via-teal-950/40 to-slate-900 border border-emerald-500/40 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-200 shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-base shrink-0">
+              📥
+            </span>
+            <div>
+              <p className="font-bold text-sm text-emerald-300">منفذ شراء كسر معتمد من الزبائن</p>
+              <p className="text-[11px] text-emerald-400/80">
+                الذهب الكسر المشترى يُضاف تلقائياً لمخزن الكسر والمستعمل بالمحل فور حفظ الفاتورة، ويتم تسجيل المصروفات بالدرج لحساب الأرباح بدقة.
+              </p>
+            </div>
+          </div>
+          <span className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-mono font-bold text-xs shrink-0">
+            ✓ يضاف للمخزن تلقائياً
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Customer & Item Builder (2 cols) */}
@@ -525,22 +553,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             {invoiceType === 'sale' && (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-slate-400">اختيار القطعة من المخزن:</span>
+                  <span className="text-xs text-slate-400">ربط بقطعة من المخزن:</span>
                   <button
                     type="button"
                     onClick={() => openStockPicker('new')}
-                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs cursor-pointer"
+                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 px-3.5 py-1.5 rounded-lg text-xs cursor-pointer"
                   >
                     <Package className="w-3.5 h-3.5" />
-                    <span>من الجديد</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openStockPicker('scrap')}
-                    className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs cursor-pointer"
-                  >
-                    <Package className="w-3.5 h-3.5" />
-                    <span>من الكسر</span>
+                    <span>📦 اختيار قطعة من المخزن</span>
                   </button>
                   {selectedStock && (
                     <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-300 px-3 py-1.5 rounded-lg text-xs">
@@ -782,24 +802,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
             {/* Financial Breakdown */}
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between text-slate-400">
-                <span>قيمة الذهب الخام:</span>
-                <span className="font-mono text-slate-200">{totalRawGold.toLocaleString()} ج.م</span>
-              </div>
-              {invoiceType === 'sale' && (
-                <>
-                  <div className="flex justify-between text-slate-400">
-                    <span>إجمالي المصنعية:</span>
-                    <span className="font-mono text-slate-200">{totalWorkmanship.toLocaleString()} ج.م</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>الدمغة وضريبة القيمة المضافة:</span>
-                    <span className="font-mono text-slate-200">{totalStampVat.toLocaleString()} ج.م</span>
-                  </div>
-                </>
+              {invoiceType === 'buyback' && (
+                <div className="flex justify-between text-slate-400">
+                  <span>إجمالي قيمة الكسر المشترى:</span>
+                  <span className="font-mono text-emerald-300 font-bold">{totalRawGold.toLocaleString()} ج.م</span>
+                </div>
               )}
 
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-400">الخصم / التقريب:</span>
                 <input
                   type="number"

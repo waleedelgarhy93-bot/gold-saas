@@ -2,6 +2,7 @@ import type {
   GoldPrices, Invoice, VisionAnalysisResult, User, StaffUser, SubscriberShop,
   AuditReportData, ShopInfo, JewelryType, InventoryItem, InventorySummary,
   CapitalSummary, LivePrices, CustomerRecord, CashTransactionRecord,
+  TrustItem, TrustSummary,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://gold-backend-web-97a37e51.hosted.cumin.dev/api';
@@ -614,6 +615,102 @@ export async function payInvoiceAPI(invoiceId: number, amount: number): Promise<
     return { ok: false, error: await readError(res, 'تعذر تسجيل الدفعة') };
   } catch (e) {
     console.warn('Error collecting payment:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+function getCurrentShopId(): number {
+  try {
+    const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+    return u.shop_id || 1;
+  } catch {
+    return 1;
+  }
+}
+
+export async function fetchTrusts(trustType?: 'gold' | 'cash', status?: string): Promise<TrustItem[]> {
+  try {
+    const shopId = getCurrentShopId();
+    let url = `${API_BASE}/trusts?shop_id=${shopId}`;
+    if (trustType) url += `&trust_type=${trustType}`;
+    if (status) url += `&status=${status}`;
+    const res = await fetch(url);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Error fetching trusts:', e);
+  }
+  return [];
+}
+
+export async function fetchTrustsSummary(): Promise<TrustSummary> {
+  const defaultSummary: TrustSummary = {
+    active_gold_count: 0,
+    total_gold_weight: 0,
+    gold_by_karat: {},
+    active_cash_count: 0,
+    total_cash_amount: 0,
+  };
+  try {
+    const shopId = getCurrentShopId();
+    const res = await fetch(`${API_BASE}/trusts/summary?shop_id=${shopId}`);
+    if (res.ok) return await res.json();
+  } catch (e) {
+    console.warn('Error fetching trusts summary:', e);
+  }
+  return defaultSummary;
+}
+
+export async function createTrustAPI(data: Partial<TrustItem>): Promise<{ ok: boolean; data?: TrustItem; error?: string }> {
+  try {
+    const shopId = getCurrentShopId();
+    const res = await fetch(`${API_BASE}/trusts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, shop_id: shopId }),
+    });
+    if (res.ok) {
+      const item = await res.json();
+      return { ok: true, data: item };
+    }
+    return { ok: false, error: await readError(res, 'تعذر تسجيل الأمانة') };
+  } catch (e) {
+    console.warn('Error creating trust item:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function updateTrustStatusAPI(
+  itemId: number,
+  status: 'held' | 'returned' | 'settled',
+  notes?: string,
+  settledNotes?: string
+): Promise<{ ok: boolean; data?: TrustItem; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/trusts/${itemId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, notes, settled_notes: settledNotes }),
+    });
+    if (res.ok) {
+      const item = await res.json();
+      return { ok: true, data: item };
+    }
+    return { ok: false, error: await readError(res, 'تعذر تحديث حالة الأمانة') };
+  } catch (e) {
+    console.warn('Error updating trust status:', e);
+    return { ok: false, error: 'تعذر الاتصال بالخادم' };
+  }
+}
+
+export async function deleteTrustAPI(itemId: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/trusts/${itemId}`, {
+      method: 'DELETE',
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, error: await readError(res, 'تعذر حذف سجل الأمانة') };
+  } catch (e) {
+    console.warn('Error deleting trust item:', e);
     return { ok: false, error: 'تعذر الاتصال بالخادم' };
   }
 }

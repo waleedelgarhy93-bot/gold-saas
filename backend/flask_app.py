@@ -13,7 +13,7 @@ load_dotenv()
 
 from database import (
     engine, SessionLocal, init_db, Shop, User, GoldPrice, Invoice, InvoiceItem,
-    Customer, JewelryType, InventoryItem, CashTransaction,
+    Customer, JewelryType, InventoryItem, CashTransaction, TrustItem,
 )
 from services.gold_math import convert_to_equivalent
 from services.gemini_vision import analyze_image_with_gemini
@@ -1337,6 +1337,157 @@ def vision_analyze():
         loop.close()
 
     return jsonify(result)
+
+# --- Trusts Warehouse (مخزن الأمانات والودائع: ذهب ونقدية) ---
+def trust_item_to_dict(t):
+    return {
+        "id": t.id,
+        "shop_id": t.shop_id,
+        "trust_type": t.trust_type,
+        "customer_name": t.customer_name,
+        "customer_phone": t.customer_phone or "",
+        "customer_national_id": t.customer_national_id or "",
+        "item_description": t.item_description or "",
+        "karat": t.karat or 21,
+        "gross_weight": round(float(t.gross_weight or 0.0), 3),
+        "net_weight": round(float(t.net_weight or 0.0), 3),
+        "cash_amount": round(float(t.cash_amount or 0.0), 2),
+        "status": t.status or "held",
+        "expected_return_date": t.expected_return_date or "",
+        "notes": t.notes or "",
+        "settled_notes": t.settled_notes or "",
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "settled_at": t.settled_at.isoformat() if t.settled_at else None,
+    }
+
+@app.route("/api/trusts", methods=["GET"])
+def get_trusts():
+    db = get_db()
+    try:
+        raw_shop_id = request.args.get("shop_id") or request.headers.get("X-Shop-Id")
+        shop_id = int(raw_shop_id) if raw_shop_id else 1
+        trust_type = request.args.get("trust_type")  # 'gold' | 'cash' | None
+        status = request.args.get("status")  # 'held' | 'all' | None
+
+        q = db.query(TrustItem).filter(TrustItem.shop_id == shop_id)
+        if trust_type:
+            q = q.filter(TrustItem.trust_type == trust_type)
+        if status and status != "all":
+            q = q.filter(TrustItem.status == status)
+        items = q.order_by(TrustItem.id.desc()).all()
+        return jsonify([trust_item_to_dict(i) for i in items])
+    finally:
+        db.close()
+
+@app.route("/api/trusts", methods=["POST"])
+def create_trust():
+    db = get_db()
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        raw_shop_id = data.get("shop_id") or request.args.get("shop_id") or request.headers.get("X-Shop-Id")
+        shop_id = int(raw_shop_id) if raw_shop_id else 1
+
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return jsonify({"detail": "اسم صاحب الأمانة مطلوب"}), 400
+
+        trust_type = data.get("trust_type") or "gold"
+        item = TrustItem(
+            shop_id=shop_id,
+            trust_type=trust_type,
+            customer_name=customer_name,
+            customer_phone=(data.get("customer_phone") or "").strip() or None,
+            customer_national_id=(data.get("customer_national_id") or "").strip() or None,
+            item_description=(data.get("item_description") or "").strip() or None,
+            karat=int(data.get("karat", 21) or 21),
+            gross_weight=float(data.get("gross_weight", 0.0) or 0.0),
+            net_weight=float(data.get("net_weight", 0.0) or 0.0),
+            cash_amount=float(data.get("cash_amount", 0.0) or 0.0),
+            status="held",
+            expected_return_date=(data.get("expected_return_date") or "").strip() or None,
+            notes=(data.get("notes") or "").strip() or None,
+            created_at=datetime.datetime.utcnow(),
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        return jsonify(trust_item_to_dict(item)), 201
+    finally:
+        db.close()
+
+@app.route("/api/trusts/<int:item_id>/status", methods=["PUT"])
+def update_trust_status(item_id):
+    db = get_db()
+    try:
+        item = db.query(TrustItem).filter(TrustItem.id == item_id).first()
+        if not item:
+            return jsonify({"detail": "عنصر الأمانة غير موجود"}), 404
+
+        data = request.get_json(force=True, silent=True) or {}
+        new_status = data.get("status")
+        if new_status:
+            item.status = new_status
+            if new_status in ("returned", "settled"):
+                item.settled_at = datetime.datetime.utcnow()
+        if "settled_notes" in data:
+            item.settled_notes = data.get("settled_notes")
+        if "notes" in data:
+            item.notes = data.get("notes")
+
+        db.commit()
+        db.refresh(item)
+        return jsonify(trust_item_to_dict(item))
+    finally:
+        db.close()
+
+@app.route("/api/trusts/<int:item_id>", methods=["DELETE"])
+def delete_trust(item_id):
+    db = get_db()
+    try:
+        item = db.query(TrustItem).filter(TrustItem.id == item_id).first()
+        if not item:
+            return jsonify({"detail": "عنصر الأمانة غير موجود"}), 404
+        db.delete(item)
+        db.commit()
+        return jsonify({"message": "تم حذف سجل الأمانة بنجاح"})
+    finally:
+        db.close()
+
+@app.route("/api/trusts/summary", methods=["GET"])
+def get_trusts_summary():
+    db = get_db()
+    try:
+        raw_shop_id = request.args.get("shop_id") or request.headers.get("X-Shop-Id")
+        shop_id = int(raw_shop_id) if raw_shop_id else 1
+
+        active_gold = db.query(TrustItem).filter(
+            TrustItem.shop_id == shop_id,
+            TrustItem.trust_type == "gold",
+            TrustItem.status == "held",
+        ).all()
+
+        total_gold_weight = round(sum(float(i.net_weight or 0.0) for i in active_gold), 3)
+        gold_by_karat = {}
+        for i in active_gold:
+            k = str(i.karat or 21)
+            gold_by_karat[k] = round(gold_by_karat.get(k, 0.0) + float(i.net_weight or 0.0), 3)
+
+        active_cash = db.query(TrustItem).filter(
+            TrustItem.shop_id == shop_id,
+            TrustItem.trust_type == "cash",
+            TrustItem.status == "held",
+        ).all()
+        total_cash_amount = round(sum(float(i.cash_amount or 0.0) for i in active_cash), 2)
+
+        return jsonify({
+            "active_gold_count": len(active_gold),
+            "total_gold_weight": total_gold_weight,
+            "gold_by_karat": gold_by_karat,
+            "active_cash_count": len(active_cash),
+            "total_cash_amount": total_cash_amount,
+        })
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

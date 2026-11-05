@@ -4,6 +4,7 @@ import { fetchGoldPrices, defaultPrices, fetchShopInfo } from './api';
 import { Navbar, type AppTab } from './components/Navbar';
 import { POSScreen } from './components/POSScreen';
 import { InventoryView } from './components/InventoryView';
+import { TrustsView } from './components/TrustsView';
 import { InvoicesListView } from './components/InvoicesListView';
 import { PeriodicInventoryAuditView } from './components/PeriodicInventoryAuditView';
 import { StaffManagementView } from './components/StaffManagementView';
@@ -156,6 +157,13 @@ export const App: React.FC = () => {
 
         {activeTab === 'inventory' && (
           <InventoryView role={currentUser.role} />
+        )}
+
+        {activeTab === 'trusts' && currentUser.role !== 'cashier' && (
+          <TrustsView
+            shopInfo={shopInfo}
+            isAdmin={currentUser.role === 'shop_admin' || currentUser.role === 'super_admin'}
+          />
         )}
 
         {activeTab === 'invoices' && (

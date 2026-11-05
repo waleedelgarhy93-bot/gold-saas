@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import type { GoldPrices, User } from '../types';
 import { 
   Coins, Sparkles, Scale, Receipt, TrendingUp, LogOut, Users, 
-  Shield, Settings, Menu, X, Package
+  Shield, Settings, Menu, X, Package, ShieldCheck
 } from 'lucide-react';
 
-export type AppTab = 'pos' | 'invoices' | 'inventory' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings';
+export type AppTab = 'pos' | 'invoices' | 'inventory' | 'trusts' | 'daily' | 'ai_scanner' | 'staff' | 'superadmin' | 'settings';
 
 interface NavbarProps {
   prices: GoldPrices;
@@ -130,6 +130,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Package className="w-4 h-4" />
                 <span>المخزن والأرصدة</span>
+              </button>
+            )}
+
+            {!isCashier && (
+              <button
+                onClick={() => handleTabClick('trusts')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl font-bold text-sm transition cursor-pointer ${
+                  activeTab === 'trusts'
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                    : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>مخزن الأمانات</span>
               </button>
             )}
 
@@ -289,17 +303,33 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>نقطة البيع (POS)</span>
             </button>
 
-            <button
-              onClick={() => handleTabClick('inventory')}
-              className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
-                activeTab === 'inventory'
-                  ? 'bg-amber-500 text-slate-950 font-bold'
-                  : 'bg-slate-800/80 text-slate-200 hover:bg-slate-800'
-              }`}
-            >
-              <Package className="w-4 h-4 shrink-0" />
-              <span>المخزن</span>
-            </button>
+            {!isCashier && (
+              <button
+                onClick={() => handleTabClick('inventory')}
+                className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'inventory'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-800/80 text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                <Package className="w-4 h-4 shrink-0" />
+                <span>المخزن</span>
+              </button>
+            )}
+
+            {!isCashier && (
+              <button
+                onClick={() => handleTabClick('trusts')}
+                className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
+                  activeTab === 'trusts'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-800/80 text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <span>مخزن الأمانات</span>
+              </button>
+            )}
 
             <button
               onClick={() => handleTabClick('invoices')}

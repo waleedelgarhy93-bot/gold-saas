@@ -9,7 +9,7 @@ import {
   fetchCashTransactions, addCashTransaction, updateOpeningCash,
 } from '../api';
 import {
-  Package, Plus, Trash2, Pencil, Wallet, Scale, Coins, X, Save,
+  Package, Plus, Trash2, Pencil, Wallet, Scale, X, Save,
   Search, Layers, ArrowDownLeft, ArrowUpRight, Receipt, AlertCircle, RotateCcw,
 } from 'lucide-react';
 
@@ -302,7 +302,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
         <div>
           <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
             <Package className="w-5 h-5 text-amber-400" />
-            <span>المخزن ورأس المال</span>
+            <span>المخزن وحركة الذهب</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             الجديد والكسر والمباع — أي قطعة تتباع تنقص من المخزن تلقائياً وتنتقل للمباع
@@ -331,7 +331,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
 
       {/* Capital cards */}
       {isAdmin && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="bg-slate-900/90 rounded-2xl p-4 border border-amber-900/30 space-y-1">
             <div className="flex items-center gap-1.5 text-[11px] text-amber-400">
               <Package className="w-3.5 h-3.5" />
@@ -372,15 +372,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
             </div>
             <div className="text-lg font-black font-mono text-sky-200">{money(capital?.receivables)}</div>
             <p className="text-[10px] text-slate-500">مبالغ لم تُحصَّل بعد</p>
-          </div>
-
-          <div className="col-span-2 lg:col-span-1 bg-gradient-to-br from-amber-500/15 via-slate-900 to-slate-950 rounded-2xl p-4 border border-amber-500/40 space-y-1">
-            <div className="flex items-center gap-1.5 text-[11px] text-amber-300">
-              <Coins className="w-3.5 h-3.5" />
-              <span>إجمالي رأس المال</span>
-            </div>
-            <div className="text-xl font-black font-mono text-amber-300">{money(capital?.total_capital)}</div>
-            <p className="text-[10px] text-amber-500/70">جديد + كسر + نقدية + متأخرات</p>
           </div>
         </div>
       )}
@@ -839,7 +830,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
       {!isAdmin && (
         <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2">
           <AlertCircle className="w-4 h-4 text-amber-500/70" />
-          <span>الأسعار والتكلفة ورأس المال ظاهرة لصاحب المحل فقط. الكاشير يقدر يشوف القطع ويختار منها أثناء البيع.</span>
+          <span>الأسعار والتكلفة والأرصدة ظاهرة لصاحب المحل فقط. الكاشير يقدر يشوف القطع ويختار منها أثناء البيع.</span>
         </div>
       )}
     
