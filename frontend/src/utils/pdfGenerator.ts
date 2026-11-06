@@ -62,9 +62,13 @@ export function buildWhatsAppInvoiceText(invoice: Invoice, shopInfo?: ShopInfo |
 }
 
 /**
- * Sends the invoice text directly via WhatsApp cleanly and reliably without black screens
+ * Sends the invoice text directly via WhatsApp cleanly and reliably without black screens or popup blockers
  */
-export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | null): void {
+export function sendInvoiceViaWhatsApp(
+  invoice: Invoice,
+  shopInfo?: ShopInfo | null,
+  preOpenedWindow?: Window | null
+): void {
   const text = buildWhatsAppInvoiceText(invoice, shopInfo);
 
   // Copy to clipboard silently as a 100% reliable backup
@@ -75,17 +79,6 @@ export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | n
   } catch {}
 
   let rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
-
-  // If no customer phone was registered, prompt the cashier for customer's phone
-  if (!rawPhone) {
-    const entered = window.prompt(
-      '📱 لإرسال الفاتورة عبر واتساب:\nأدخل رقم هاتف العميل (مثال: 010... أو 011...):',
-      ''
-    );
-    if (entered && entered.trim()) {
-      rawPhone = entered.replace(/\D/g, '');
-    }
-  }
 
   // Format Egyptian and international numbers
   let formattedPhone = rawPhone;
@@ -98,23 +91,29 @@ export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | n
   }
 
   const encoded = encodeURIComponent(text);
-  const url = formattedPhone
+  const waUrl = formattedPhone
     ? `https://wa.me/${formattedPhone}?text=${encoded}`
     : `https://wa.me/?text=${encoded}`;
 
-  try {
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      if (document.body.contains(link)) document.body.removeChild(link);
-    }, 500);
-  } catch (err) {
-    console.warn('Fallback opening WhatsApp:', err);
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    if (preOpenedWindow) {
+      try { preOpenedWindow.close(); } catch {}
+    }
+    // On mobile, direct window.location.href always launches WhatsApp app smoothly
+    window.location.href = waUrl;
+  } else {
+    // On desktop
+    if (preOpenedWindow && !preOpenedWindow.closed) {
+      preOpenedWindow.location.href = waUrl;
+      preOpenedWindow.focus();
+    } else {
+      const win = window.open(waUrl, '_blank');
+      if (!win) {
+        window.location.href = waUrl;
+      }
+    }
   }
 }
 
@@ -128,29 +127,34 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
     return null;
   }
 
+  const wrapper = document.getElementById('receipt-print-wrapper');
+  const prevPosition = wrapper ? wrapper.style.position : '';
+  const prevLeft = wrapper ? wrapper.style.left : '';
+  const prevTop = wrapper ? wrapper.style.top : '';
+  const prevZIndex = wrapper ? wrapper.style.zIndex : '';
+  const prevOpacity = wrapper ? wrapper.style.opacity : '';
+  const prevVisibility = wrapper ? wrapper.style.visibility : '';
+
   try {
+    // Temporarily bring wrapper into visible viewport for html2canvas to capture real pixels
+    if (wrapper) {
+      wrapper.style.position = 'fixed';
+      wrapper.style.left = '0';
+      wrapper.style.top = '0';
+      wrapper.style.zIndex = '99999';
+      wrapper.style.opacity = '1';
+      wrapper.style.visibility = 'visible';
+    }
+
+    // Wait 100ms for browser to repaint the table and fonts
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     const canvas = await html2canvas(element, {
-      scale: 2.5,
+      scale: 2,
       useCORS: true,
       logging: false,
       backgroundColor: '#ffffff',
       windowWidth: 1000,
-      onclone: (clonedDoc) => {
-        const wrapper = clonedDoc.getElementById('receipt-print-wrapper');
-        if (wrapper) {
-          wrapper.style.position = 'static';
-          wrapper.style.left = '0';
-          wrapper.style.visibility = 'visible';
-          wrapper.style.display = 'block';
-        }
-        const el = clonedDoc.getElementById(elementId);
-        if (el) {
-          el.style.position = 'static';
-          el.style.left = '0';
-          el.style.visibility = 'visible';
-          el.style.display = 'block';
-        }
-      },
     });
 
     const imgData = canvas.toDataURL('image/jpeg', 0.98);
@@ -167,12 +171,22 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
     // Place at top half of A4
-    pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth, pdfHeight);
+    pdf.addImage(imgData, 'JPEG', margin, margin, pdfWidth, Math.min(pdfHeight, 140));
 
     return pdf.output('blob');
   } catch (err) {
     console.error('Error generating PDF:', err);
     return null;
+  } finally {
+    // Restore wrapper back to hidden print-only state
+    if (wrapper) {
+      wrapper.style.position = prevPosition || 'fixed';
+      wrapper.style.left = prevLeft || '-9999px';
+      wrapper.style.top = prevTop || '0';
+      wrapper.style.zIndex = prevZIndex || '-100';
+      wrapper.style.opacity = prevOpacity || '';
+      wrapper.style.visibility = prevVisibility || '';
+    }
   }
 }
 

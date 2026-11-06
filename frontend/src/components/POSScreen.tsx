@@ -212,6 +212,18 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     return acc + (i.net_weight * purity / 0.875);
   }, 0);
 
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
+  const handleDownloadInvoicePDF = async () => {
+    if (!successInvoice) return;
+    setPdfDownloading(true);
+    try {
+      await downloadInvoicePDF('half-a4-invoice-receipt', successInvoice.invoice_number);
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
+
   const handleSaveInvoice = async (printImmediately = true): Promise<Invoice | null> => {
     if (items.length === 0) {
       alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة');
@@ -266,18 +278,29 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   };
 
   const handleWhatsAppSend = async () => {
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    let waWindow: Window | null = null;
+    if (!isMobile) {
+      try {
+        waWindow = window.open('about:blank', '_blank');
+      } catch {
+        waWindow = null;
+      }
+    }
+
     // 1. If invoice is already saved and shown in banner
     if (successInvoice) {
       const invToSend = {
         ...successInvoice,
         customer_phone: successInvoice.customer_phone || customerPhone || undefined,
       };
-      sendInvoiceViaWhatsApp(invToSend, shopInfo);
+      sendInvoiceViaWhatsApp(invToSend, shopInfo, waWindow);
       return;
     }
 
     // 2. If no items
     if (items.length === 0) {
+      if (waWindow) waWindow.close();
       alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة أولاً');
       return;
     }
@@ -324,7 +347,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       created_at: new Date().toISOString(),
     };
 
-    sendInvoiceViaWhatsApp(targetInvoice, shopInfo);
+    sendInvoiceViaWhatsApp(targetInvoice, shopInfo, waWindow);
   };
 
   const handleReset = () => {
@@ -372,16 +395,13 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               <span>طباعة (نصف A4)</span>
             </button>
             <button
-              onClick={() => {
-                if (successInvoice) {
-                  downloadInvoicePDF('half-a4-invoice-receipt', successInvoice.invoice_number);
-                }
-              }}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold px-3 py-1.5 rounded-lg text-xs border border-amber-500/40 transition cursor-pointer"
+              onClick={handleDownloadInvoicePDF}
+              disabled={pdfDownloading}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold px-3 py-1.5 rounded-lg text-xs border border-amber-500/40 transition cursor-pointer disabled:opacity-50"
               title="تحميل الفاتورة كملف PDF رسمي بحجم نصف A4"
             >
               <FileDown className="w-4 h-4" />
-              <span>تحميل PDF</span>
+              <span>{pdfDownloading ? 'جارٍ التحميل...' : 'تحميل PDF'}</span>
             </button>
             <button
               onClick={handleWhatsAppSend}

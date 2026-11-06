@@ -151,7 +151,16 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
   };
 
   const handleShareWhatsApp = (inv: Invoice) => {
-    sendInvoiceViaWhatsApp(inv, shopInfo);
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    let waWindow: Window | null = null;
+    if (!isMobile) {
+      try {
+        waWindow = window.open('about:blank', '_blank');
+      } catch {
+        waWindow = null;
+      }
+    }
+    sendInvoiceViaWhatsApp(inv, shopInfo, waWindow);
   };
 
   const openPayment = (inv: Invoice) => {
