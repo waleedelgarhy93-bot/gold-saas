@@ -195,7 +195,16 @@ export async function createInvoiceAPI(invoiceData: any): Promise<Invoice> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(invoiceData),
     });
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        ...invoiceData,
+        ...data,
+        items: (data.items && data.items.length > 0) ? data.items : (invoiceData.items || []),
+        customer_phone: data.customer_phone || invoiceData.customer_phone,
+        customer_national_id: data.customer_national_id || invoiceData.customer_national_id,
+      };
+    }
   } catch (e) {
     console.warn('Backend not responding, saving invoice in local storage:', e);
   }

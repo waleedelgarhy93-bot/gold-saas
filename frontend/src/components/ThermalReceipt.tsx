@@ -36,34 +36,37 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
     <div
       id="receipt-print-wrapper"
       className="receipt-print-container"
-      style={{
-        position: 'fixed',
-        left: '-9999px',
-        top: 0,
-        zIndex: -100,
-      }}
     >
       <style>{`
+        #receipt-print-wrapper {
+          display: none;
+        }
         @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #receipt-print-wrapper,
+          #receipt-print-wrapper * {
+            visibility: visible !important;
+          }
           #receipt-print-wrapper {
-            position: static !important;
-            left: auto !important;
-            top: auto !important;
-            z-index: auto !important;
             display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
+            background: white !important;
           }
           @page {
             size: A4 portrait;
             margin: 6mm;
           }
-          .no-print {
-            display: none !important;
-          }
           #half-a4-invoice-receipt {
             margin: 0 auto !important;
+            display: block !important;
+            visibility: visible !important;
           }
         }
       `}</style>
@@ -142,7 +145,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300 font-mono text-[10px]">
-              {invoice.items.map((item, idx) => {
+              {(invoice.items || []).map((item, idx) => {
                 const net = item.net_weight || 0;
                 const grams = Math.floor(net);
                 const millis = Math.round((net - grams) * 1000);
@@ -161,7 +164,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
                     <td className="py-1 px-1 border-l border-black text-gray-900">{(item.price_per_gram || 0).toLocaleString()}</td>
                     <td className="py-1 px-1 border-l border-black text-gray-700">{work > 0 ? work.toLocaleString() : '—'}</td>
                     <td className="py-1 px-2 text-left font-black text-black">
-                      {item.total_item_price.toLocaleString()}
+                      {(item.total_item_price || 0).toLocaleString()}
                     </td>
                   </tr>
                 );
@@ -175,16 +178,16 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
           <div className="space-y-1">
             <div className="flex justify-between">
               <span className="font-bold text-gray-700">إجمالي الوزن الصافي:</span>
-              <span className="font-mono font-black text-black text-[11px]">{invoice.total_net_weight.toFixed(3)} جرام</span>
+              <span className="font-mono font-black text-black text-[11px]">{(invoice.total_net_weight || 0).toFixed(3)} جرام</span>
             </div>
             <div className="flex justify-between">
               <span className="font-bold text-gray-700">المعادل لعيار 21:</span>
-              <span className="font-mono font-bold text-amber-900">{invoice.equivalent_21k_weight.toFixed(3)} جرام</span>
+              <span className="font-mono font-bold text-amber-900">{(invoice.equivalent_21k_weight || 0).toFixed(3)} جرام</span>
             </div>
-            {invoice.discount > 0 && (
+            {(invoice.discount || 0) > 0 && (
               <div className="flex justify-between text-red-700 font-bold">
                 <span>القديم المستبدل / الخصم:</span>
-                <span className="font-mono">-{invoice.discount.toLocaleString()} ج.م</span>
+                <span className="font-mono">-{(invoice.discount || 0).toLocaleString()} ج.م</span>
               </div>
             )}
           </div>
@@ -192,11 +195,11 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({ invoice, shopInf
           <div className="space-y-1 border-r border-gray-300 pr-2">
             <div className="flex justify-between font-bold text-xs border-b border-gray-300 pb-0.5">
               <span>الصافي المطلوب:</span>
-              <span className="font-mono font-black text-black">{invoice.final_amount.toLocaleString()} ج.م</span>
+              <span className="font-mono font-black text-black">{(invoice.final_amount || 0).toLocaleString()} ج.م</span>
             </div>
             <div className="flex justify-between text-emerald-800 font-bold">
               <span>المسدد نقدياً / تحويل:</span>
-              <span className="font-mono">{(invoice.paid_amount ?? invoice.final_amount).toLocaleString()} ج.م</span>
+              <span className="font-mono">{(invoice.paid_amount ?? invoice.final_amount ?? 0).toLocaleString()} ج.م</span>
             </div>
             {(invoice.remaining_amount || 0) > 0 && (
               <div className="flex justify-between text-red-700 font-black">

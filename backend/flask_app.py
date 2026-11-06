@@ -722,20 +722,43 @@ def invoices_handler():
         db.commit()
         db.refresh(invoice)
 
+        items_data = [{
+            "id": it.id,
+            "item_name": it.item_name,
+            "karat": it.karat,
+            "gross_weight": it.gross_weight,
+            "stones_weight": it.stones_weight,
+            "net_weight": it.net_weight,
+            "price_per_gram": it.price_per_gram,
+            "workmanship_per_gram": it.workmanship_per_gram,
+            "stamp_vat_per_gram": it.stamp_vat_per_gram,
+            "total_item_price": it.total_item_price,
+            "brand": it.brand,
+            "serial_number": it.serial_number
+        } for it in invoice.items]
+
         return jsonify({
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
             "invoice_type": invoice.invoice_type,
             "customer_id": invoice.customer_id,
             "customer_name": invoice.customer_name,
+            "customer_national_id": invoice.customer_national_id,
+            "customer_phone": invoice.customer_phone,
             "total_gross_weight": invoice.total_gross_weight,
             "total_net_weight": invoice.total_net_weight,
             "equivalent_21k_weight": invoice.equivalent_21k_weight,
+            "total_raw_gold_cost": invoice.total_raw_gold_cost,
+            "total_workmanship": invoice.total_workmanship,
+            "total_stamp_vat": invoice.total_stamp_vat,
+            "discount": invoice.discount,
             "final_amount": invoice.final_amount,
             "paid_amount": invoice.paid_amount,
             "remaining_amount": invoice.remaining_amount,
             "payment_method": invoice.payment_method,
-            "created_at": invoice.created_at.isoformat() if invoice.created_at else None
+            "notes": invoice.notes,
+            "created_at": invoice.created_at.isoformat() if invoice.created_at else None,
+            "items": items_data
         })
     finally:
         db.close()

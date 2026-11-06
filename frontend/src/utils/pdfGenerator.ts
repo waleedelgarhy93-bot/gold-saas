@@ -128,6 +128,7 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
   }
 
   const wrapper = document.getElementById('receipt-print-wrapper');
+  const prevDisplay = wrapper ? wrapper.style.display : '';
   const prevPosition = wrapper ? wrapper.style.position : '';
   const prevLeft = wrapper ? wrapper.style.left : '';
   const prevTop = wrapper ? wrapper.style.top : '';
@@ -138,6 +139,7 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
   try {
     // Temporarily bring wrapper into visible viewport for html2canvas to capture real pixels
     if (wrapper) {
+      wrapper.style.display = 'block';
       wrapper.style.position = 'fixed';
       wrapper.style.left = '0';
       wrapper.style.top = '0';
@@ -180,12 +182,13 @@ export async function generateInvoicePDFBlob(elementId: string): Promise<Blob | 
   } finally {
     // Restore wrapper back to hidden print-only state
     if (wrapper) {
-      wrapper.style.position = prevPosition || 'fixed';
-      wrapper.style.left = prevLeft || '-9999px';
-      wrapper.style.top = prevTop || '0';
-      wrapper.style.zIndex = prevZIndex || '-100';
-      wrapper.style.opacity = prevOpacity || '';
-      wrapper.style.visibility = prevVisibility || '';
+      wrapper.style.display = prevDisplay;
+      wrapper.style.position = prevPosition;
+      wrapper.style.left = prevLeft;
+      wrapper.style.top = prevTop;
+      wrapper.style.zIndex = prevZIndex;
+      wrapper.style.opacity = prevOpacity;
+      wrapper.style.visibility = prevVisibility;
     }
   }
 }
