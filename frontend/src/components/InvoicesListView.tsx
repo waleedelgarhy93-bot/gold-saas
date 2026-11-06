@@ -763,7 +763,7 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
                 <button
                   onClick={() => handleShareWhatsApp(detailsInvoice)}
                   className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-3 py-2 rounded-xl text-xs transition cursor-pointer shadow"
-                  title="إرسال عبر واتساب كملف PDF"
+                  title="إرسال الفاتورة عبر واتساب"
                 >
                   <Send className="w-4 h-4" />
                   <span>واتساب</span>

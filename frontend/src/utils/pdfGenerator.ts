@@ -62,24 +62,44 @@ export function buildWhatsAppInvoiceText(invoice: Invoice, shopInfo?: ShopInfo |
 }
 
 /**
- * Sends the invoice text directly via WhatsApp without DOM manipulation or black screens
+ * Sends the invoice text directly via WhatsApp cleanly and reliably without black screens
  */
 export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | null): void {
   const text = buildWhatsAppInvoiceText(invoice, shopInfo);
-  const rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
-  const phoneParam = rawPhone ? (rawPhone.startsWith('0') ? `2${rawPhone}` : rawPhone) : '';
+  
+  // Clean and format phone number for Egyptian and international formats
+  let rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
+  if (rawPhone.startsWith('002')) {
+    rawPhone = rawPhone.substring(2);
+  } else if (rawPhone.startsWith('0')) {
+    rawPhone = `2${rawPhone}`;
+  } else if (rawPhone.length === 10 && !rawPhone.startsWith('2')) {
+    rawPhone = `20${rawPhone}`;
+  }
 
   const encoded = encodeURIComponent(text);
-  const url = phoneParam
-    ? `https://api.whatsapp.com/send?phone=${phoneParam}&text=${encoded}`
-    : `https://api.whatsapp.com/send?text=${encoded}`;
+  
+  // Standard universal wa.me URL
+  const url = rawPhone
+    ? `https://wa.me/${rawPhone}?text=${encoded}`
+    : `https://wa.me/?text=${encoded}`;
 
-  // Safe navigation: on mobile devices use window.location.href to trigger WhatsApp directly
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (isMobile) {
-    window.location.href = url;
-  } else {
-    window.open(url, '_blank');
+  // Direct trigger using a temporary anchor to prevent popup blockers
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      if (document.body.contains(link)) {
+        document.body.removeChild(link);
+      }
+    }, 500);
+  } catch (err) {
+    console.warn('Fallback opening WhatsApp:', err);
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
 

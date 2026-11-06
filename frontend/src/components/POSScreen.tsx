@@ -212,15 +212,15 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     return acc + (i.net_weight * purity / 0.875);
   }, 0);
 
-  const handleSaveInvoice = async (printImmediately = true) => {
+  const handleSaveInvoice = async (printImmediately = true): Promise<Invoice | null> => {
     if (items.length === 0) {
       alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة');
-      return;
+      return null;
     }
 
     if (invoiceType === 'buyback' && !customerNationalId) {
       const confirmProceed = confirm('تنبيه أمني وقانوني: لم تسجل الرقم القومي للعميل في فاتورة شراء الكسر! هل تريد المتابعة بدون رقم قومي؟');
-      if (!confirmProceed) return;
+      if (!confirmProceed) return null;
     }
 
     const payload = {
@@ -248,44 +248,83 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       })),
     };
 
-    const saved = await createInvoiceAPI(payload);
-    setSuccessInvoice(saved);
-    if (onInvoiceSaved) {
-      onInvoiceSaved(saved);
-    }
+    try {
+      const saved = await createInvoiceAPI(payload);
+      setSuccessInvoice(saved);
+      if (onInvoiceSaved) {
+        onInvoiceSaved(saved);
+      }
 
-    if (printImmediately) {
-      setTimeout(() => window.print(), 300);
+      if (printImmediately) {
+        setTimeout(() => window.print(), 300);
+      }
+      return saved;
+    } catch (e) {
+      console.error('Error saving invoice:', e);
+      return null;
     }
   };
 
   const handleWhatsAppSend = async () => {
-    if (!customerPhone && !successInvoice?.customer_phone) {
-      alert('من فضلك أدخل رقم هاتف العميل أولاً لإرسال الفاتورة عبر واتساب');
-      return;
-    }
-
+    // 1. If invoice is already saved and shown in banner
     if (successInvoice) {
-      sendInvoiceViaWhatsApp(successInvoice, shopInfo);
+      const invToSend = {
+        ...successInvoice,
+        customer_phone: successInvoice.customer_phone || customerPhone || undefined,
+      };
+      sendInvoiceViaWhatsApp(invToSend, shopInfo);
       return;
     }
 
+    // 2. If no items
     if (items.length === 0) {
       alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة أولاً');
       return;
     }
 
-    // Direct text send even if not yet saved, or save then send
+    // 3. Save invoice first
+    let savedInvoice: Invoice | null = null;
     try {
-      await handleSaveInvoice(false);
-      setTimeout(() => {
-        if (successInvoice) {
-          sendInvoiceViaWhatsApp(successInvoice, shopInfo);
-        }
-      }, 300);
+      savedInvoice = await handleSaveInvoice(false);
     } catch (e) {
       console.warn('Error saving before WhatsApp:', e);
     }
+
+    // 4. Fallback invoice object so WhatsApp NEVER fails
+    const targetInvoice: Invoice = savedInvoice || {
+      invoice_number: `INV-${Date.now().toString().slice(-4)}`,
+      invoice_type: invoiceType,
+      customer_name: customerName || 'عميل نقدي',
+      customer_phone: customerPhone || undefined,
+      customer_national_id: customerNationalId || undefined,
+      total_gross_weight: totalGrossWeight,
+      total_net_weight: totalNetWeight,
+      equivalent_21k_weight: equivalent21k,
+      total_raw_gold_cost: totalRawGold,
+      total_workmanship: totalWorkmanship,
+      total_stamp_vat: totalStampVat,
+      discount: discount,
+      final_amount: finalTotal,
+      paid_amount: effectivePaid,
+      remaining_amount: remainingAmount,
+      payment_method: paymentMethod,
+      items: items.map(i => ({
+        id: String(i.id),
+        item_name: i.item_name,
+        karat: i.karat,
+        gross_weight: i.gross_weight,
+        stones_weight: i.stones_weight,
+        net_weight: i.net_weight,
+        price_per_gram: i.price_per_gram,
+        workmanship_per_gram: i.workmanship_per_gram,
+        stamp_vat_per_gram: i.stamp_vat_per_gram,
+        total_item_price: i.total_item_price,
+        brand: i.brand,
+      })),
+      created_at: new Date().toISOString(),
+    };
+
+    sendInvoiceViaWhatsApp(targetInvoice, shopInfo);
   };
 
   const handleReset = () => {
@@ -347,7 +386,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <button
               onClick={handleWhatsAppSend}
               className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow"
-              title="إرسال الفاتورة عبر واتساب كملف PDF"
+              title="إرسال الفاتورة عبر واتساب مباشرة للعميل"
             >
               <Send className="w-4 h-4" />
               <span>واتساب</span>

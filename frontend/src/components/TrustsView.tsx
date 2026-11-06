@@ -184,9 +184,32 @@ export const TrustsView: React.FC<TrustsViewProps> = ({ shopInfo, isAdmin }) => 
     msg += `🔒 *إقرار أمانة:* أمانة محفوظة بخزينة المحل تحت مسئوليتنا ومطابقة للمواصفات والأوزان المذكورة أعلاه.\n`;
     msg += `✨ نسعد دائماً بخدمتكم وتفضلوا بقبول فائق الاحترام.`;
 
-    const formattedPhone = cleanPhone.startsWith('0') ? `2${cleanPhone}` : cleanPhone;
-    const url = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
+    let formattedPhone = cleanPhone;
+    if (formattedPhone.startsWith('002')) {
+      formattedPhone = formattedPhone.substring(2);
+    } else if (formattedPhone.startsWith('0')) {
+      formattedPhone = `2${formattedPhone}`;
+    } else if (formattedPhone.length === 10 && !formattedPhone.startsWith('2')) {
+      formattedPhone = `20${formattedPhone}`;
+    }
+
+    const url = formattedPhone
+      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        if (document.body.contains(link)) document.body.removeChild(link);
+      }, 500);
+    } catch {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const filteredItems = items.filter(i => {
