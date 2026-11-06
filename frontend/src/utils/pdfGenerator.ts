@@ -66,25 +66,42 @@ export function buildWhatsAppInvoiceText(invoice: Invoice, shopInfo?: ShopInfo |
  */
 export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | null): void {
   const text = buildWhatsAppInvoiceText(invoice, shopInfo);
-  
-  // Clean and format phone number for Egyptian and international formats
+
+  // Copy to clipboard silently as a 100% reliable backup
+  try {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+  } catch {}
+
   let rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
-  if (rawPhone.startsWith('002')) {
-    rawPhone = rawPhone.substring(2);
-  } else if (rawPhone.startsWith('0')) {
-    rawPhone = `2${rawPhone}`;
-  } else if (rawPhone.length === 10 && !rawPhone.startsWith('2')) {
-    rawPhone = `20${rawPhone}`;
+
+  // If no customer phone was registered, prompt the cashier for customer's phone
+  if (!rawPhone) {
+    const entered = window.prompt(
+      '📱 لإرسال الفاتورة عبر واتساب:\nأدخل رقم هاتف العميل (مثال: 010... أو 011...):',
+      ''
+    );
+    if (entered && entered.trim()) {
+      rawPhone = entered.replace(/\D/g, '');
+    }
+  }
+
+  // Format Egyptian and international numbers
+  let formattedPhone = rawPhone;
+  if (formattedPhone.startsWith('002')) {
+    formattedPhone = formattedPhone.substring(2);
+  } else if (formattedPhone.startsWith('0')) {
+    formattedPhone = `2${formattedPhone}`;
+  } else if (formattedPhone.length === 10 && !formattedPhone.startsWith('2')) {
+    formattedPhone = `20${formattedPhone}`;
   }
 
   const encoded = encodeURIComponent(text);
-  
-  // Standard universal wa.me URL
-  const url = rawPhone
-    ? `https://wa.me/${rawPhone}?text=${encoded}`
+  const url = formattedPhone
+    ? `https://wa.me/${formattedPhone}?text=${encoded}`
     : `https://wa.me/?text=${encoded}`;
 
-  // Direct trigger using a temporary anchor to prevent popup blockers
   try {
     const link = document.createElement('a');
     link.href = url;
@@ -93,9 +110,7 @@ export function sendInvoiceViaWhatsApp(invoice: Invoice, shopInfo?: ShopInfo | n
     document.body.appendChild(link);
     link.click();
     setTimeout(() => {
-      if (document.body.contains(link)) {
-        document.body.removeChild(link);
-      }
+      if (document.body.contains(link)) document.body.removeChild(link);
     }, 500);
   } catch (err) {
     console.warn('Fallback opening WhatsApp:', err);
