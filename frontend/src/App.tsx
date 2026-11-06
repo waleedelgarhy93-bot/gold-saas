@@ -13,6 +13,7 @@ import { ShopSettingsView } from './components/ShopSettingsView';
 import { AIScannerModal } from './components/AIScannerModal';
 import { PriceModal } from './components/PriceModal';
 import { ThermalReceipt } from './components/ThermalReceipt';
+import { QuickCalculator } from './components/QuickCalculator';
 import { LoginScreen } from './components/LoginScreen';
 import { MarketingLanding } from './components/MarketingLanding';
 
@@ -221,6 +222,9 @@ export const App: React.FC = () => {
         mode={scannerMode}
         onApplyData={handleApplyVisionData}
       />
+
+      {/* Floating Jewelry Calculator */}
+      <QuickCalculator />
     </div>
   );
 };
