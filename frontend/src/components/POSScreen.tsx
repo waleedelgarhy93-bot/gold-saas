@@ -108,13 +108,16 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     const targetType = data.invoice_type || 'sale';
     setInvoiceType(targetType);
 
-    if (data.customer_name && data.customer_name !== 'عميل نقدي') {
+    if (data.customer_name) {
       setCustomerName(data.customer_name);
     }
-    if (data.customer_phone) setCustomerPhone(data.customer_phone);
-    if (data.customer_national_id) setCustomerNationalId(data.customer_national_id);
+    if (data.customer_phone) {
+      setCustomerPhone(data.customer_phone);
+    }
+    if (data.customer_national_id) {
+      setCustomerNationalId(data.customer_national_id);
+    }
 
-    // Calculate item and add directly to items array!
     const gross = data.gross_weight || 10.0;
     const stones = data.stones_weight || 0.0;
     const net = Math.max(0, parseFloat((gross - stones).toFixed(3)));
@@ -123,6 +126,16 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     const work = targetType === 'sale' ? (data.workmanship_per_gram || 120) : 0;
     const vat = targetType === 'sale' ? (parseFloat(stampVat) || 25) : 0;
 
+    // Always update current inputs in the form
+    if (data.item_name) {
+      setItemName(data.item_name);
+    }
+    setKarat(karatVal);
+    setGrossWeight(String(gross));
+    setStonesWeight(String(stones));
+    setWorkmanship(String(work));
+
+    // Calculate item and add directly to items array!
     const rawCost = net * pricePerGram;
     const workCost = net * work;
     const vatCost = net * vat;
@@ -130,7 +143,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
     const newItem: POSItem = {
       id: Math.random().toString(36).substring(2, 9),
-      item_name: data.item_name || 'قطعة ذهب',
+      item_name: data.item_name || 'خاتم عيار 21',
       karat: karatVal,
       gross_weight: gross,
       stones_weight: stones,
@@ -142,13 +155,6 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     };
 
     setItems((prev) => [...prev, newItem]);
-
-    // Also update current inputs
-    setItemName(data.item_name || 'غويشة عيار 21');
-    setKarat(karatVal);
-    setGrossWeight(String(gross));
-    setStonesWeight(String(stones));
-    setWorkmanship(String(work));
   };
 
   const loadPickerItems = async (section: 'new' | 'scrap', term: string) => {

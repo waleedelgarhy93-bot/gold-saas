@@ -61,45 +61,62 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
   }
 
   // 4. Customer Name
-  let customer_name = 'عميل نقدي';
-  const namePatterns = [
-    /(?:للأستاذ|للاستاذ|للأستاذة|للاستاذة|للمهندس|للدكتور|للحاج|للحاجة|للمدام|للعميل|للسيد|للعميلة|باسم|اسم العميل|اسمه|اسمها)\s+([^\d,\.\n]+?)(?=\s+(?:رقم|تليفون|موبايل|هاتف|خاتم|دبلة|سلسلة|غويشة|غوايش|حلق|انسيال|سبيكة|جنيه|عيار|وزن|$))/i,
-    /(?:بيع ل|شراء من|بيع لل|شراء من ال|لل)\s+([^\d,\.\n]+?)(?=\s+(?:رقم|تليفون|موبايل|هاتف|خاتم|دبلة|سلسلة|غويشة|حلق|انسيال|سبيكة|$))/i,
+  let customer_name = '';
+  const stopWordsPattern = '(?:رقم|تليفون|تليفونه|موبايل|هاتف|تلفون|خاتم|دبلة|سلسلة|غويشة|غوايش|حلق|انسيال|سبيكة|جنيه|كسر|عيار|وزن|وزنه|وزنها|مصنعية|مصنعيتها|انا|أنا|احنا|إحنا|هبيع|هشتري|بيع|شراء|الصنف|اسم الصنف|اسم الخاتم|اسم القطعة|القطعة)';
+
+  const nameRegexes = [
+    new RegExp('(?:اسم\\s*العميل|اسم\\s*الزبون|اسم\\s*المشتري|العميل|الزبون|المشتري|باسم|اسمه|اسمها)(?:\\s+هو|\\s*:)?\\s+([^\\d,\\.\\n]+?)(?=\\s+' + stopWordsPattern + '|$)', 'i'),
+    new RegExp('(?:للأستاذ|للاستاذ|للأستاذة|للاستاذة|للمهندس|للدكتور|للحاج|للحاجة|للمدام|للعميل|للسيد)(?:\\s+هو|\\s*:)?\\s+([^\\d,\\.\\n]+?)(?=\\s+' + stopWordsPattern + '|$)', 'i'),
+    new RegExp('(?:بيع\\s*لـ?|شراء\\s*من|بيع\\s*لل)(?:\\s+هو|\\s*:)?\\s+([^\\d,\\.\\n]+?)(?=\\s+' + stopWordsPattern + '|$)', 'i')
   ];
 
-  for (const pat of namePatterns) {
-    const match = text.match(pat);
+  for (const reg of nameRegexes) {
+    const match = text.match(reg);
     if (match && match[1]) {
-      const cleaned = match[1].replace(/(?:أستاذ|استاذ|حاج|مدام|دكتور|مهندس)/g, '').trim();
-      if (cleaned.length >= 2 && !/^(بيع|شراء|خاتم|دبلة|غويشة)$/.test(cleaned)) {
+      const cleaned = match[1].replace(/(?:أستاذ|استاذ|حاج|مدام|دكتور|مهندس|هو|هي)/g, '').trim();
+      if (cleaned.length >= 2 && !/^(بيع|شراء|خاتم|دبلة|غويشة|سبيكة|جنيه)$/.test(cleaned)) {
         customer_name = cleaned;
         break;
       }
     }
   }
 
-  // 5. Item Name
-  let item_name = invoice_type === 'sale' ? 'غويشة' : 'كسر ذهب';
-  const itemKeywords = [
-    'خاتم', 'دبلة', 'غويشة', 'غوايش', 'سلسلة', 'سلاسل', 'كوليه', 'حلق', 'حلقان',
-    'انسيال', 'اسورة', 'سوار', 'سبيكة', 'سبائك', 'جنيه', 'نصف جنيه', 'ربع جنيه',
-    'توينز', 'محبس', 'تعليقة', 'مدالية', 'كف', 'عقد', 'مصحف ذهب'
-  ];
+  // 5. Item Name / Ring Name
+  let item_name = '';
 
-  for (const kw of itemKeywords) {
-    if (text.includes(kw)) {
-      // Check if brand or model mentioned
-      let brand = '';
-      if (/لازوردي/i.test(text)) brand = ' لازوردي';
-      else if (/btc|بي تي سي/i.test(text)) brand = ' BTC';
-      else if (/إيجيبت جولد|ايجيبت جولد/i.test(text)) brand = ' إيجيبت جولد';
-      else if (/سويس جولد/i.test(text)) brand = ' سويس جولد';
-      else if (/ماستر جولد/i.test(text)) brand = ' ماستر جولد';
-      else if (/كارتير/i.test(text)) brand = ' كارتير';
-
-      item_name = `${kw}${brand}`;
-      break;
+  // Check explicit item phrases e.g. 'اسم الخاتم خاتم لازوردي' or 'الصنف خاتم'
+  const explicitItemMatch = text.match(/(?:اسم\s*الخاتم|اسم\s*الصنف|الصنف|اسم\s*القطعة|القطعة|نوع\s*القطعة)(?:\s+هو|\s*:)?\s+([^\d,\.\n]+?)(?=\s+(?:عيار|وزن|وزنه|مصنعية|رقم|تليفون|اسم العميل|$))/i);
+  if (explicitItemMatch && explicitItemMatch[1]) {
+    const exp = explicitItemMatch[1].trim();
+    if (exp.length >= 2 && !/^(هو|هي)$/.test(exp)) {
+      item_name = exp;
     }
+  }
+
+  if (!item_name) {
+    const itemKeywords = [
+      'خاتم', 'دبلة', 'غويشة', 'غوايش', 'سلسلة', 'سلاسل', 'كوليه', 'حلق', 'حلقان',
+      'انسيال', 'اسورة', 'سوار', 'سبيكة', 'سبائك', 'جنيه', 'نصف جنيه', 'ربع جنيه',
+      'توينز', 'محبس', 'تعليقة', 'مدالية', 'كف', 'عقد', 'مصحف ذهب', 'كسر ذهب', 'ذهب كسر'
+    ];
+
+    for (const kw of itemKeywords) {
+      if (text.includes(kw)) {
+        // Look for descriptive brand/style word immediately following kw
+        const kwRegex = new RegExp('(' + kw + '(?:\\s+(?:لازوردي|btc|بي\\s*تي\\s*سي|إيجيبت\\s*جولد|سويس\\s*جولد|ماستر\\s*جولد|كارتير|سوليتير|سولتير|رجالي|حريمي|أطفال|ذهب|أبيض|اصفر))?)', 'i');
+        const m = text.match(kwRegex);
+        if (m && m[1]) {
+          item_name = m[1].trim();
+        } else {
+          item_name = kw;
+        }
+        break;
+      }
+    }
+  }
+
+  if (!item_name) {
+    item_name = invoice_type === 'sale' ? 'خاتم عيار 21' : 'كسر ذهب عيار 21';
   }
 
   // 6. Karat
@@ -108,6 +125,10 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
   else if (/عيار\s*18|18\s*قيراط|تمانتاشر|ثمانية عشر/i.test(text)) karat = 18;
   else if (/عيار\s*14|14\s*قيراط|أربعة عشر/i.test(text)) karat = 14;
   else if (/عيار\s*21|21\s*قيراط|واحد وعشرين/i.test(text)) karat = 21;
+
+  if (!item_name.includes(String(karat)) && !/سبيكة|جنيه/.test(item_name)) {
+    item_name = `${item_name} عيار ${karat}`;
+  }
 
   // 7. Weight (Gross & Net)
   let gross_weight = 10.0;
@@ -136,10 +157,10 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
 
   return {
     invoice_type,
-    customer_name,
+    customer_name: customer_name || 'عميل نقدي',
     customer_phone,
     customer_national_id,
-    item_name: item_name.includes(String(karat)) ? item_name : `${item_name} عيار ${karat}`,
+    item_name,
     karat,
     gross_weight,
     stones_weight: 0,
@@ -275,9 +296,15 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
   const processSpeech = (text: string) => {
     const data = parseEgyptianGoldSpeech(text);
     setEditableType(data.invoice_type);
-    setEditableName(data.customer_name || 'عميل نقدي');
-    setEditablePhone(data.customer_phone || '');
-    setEditableItem(data.item_name || 'غويشة عيار 21');
+    if (data.customer_name) {
+      setEditableName(data.customer_name);
+    }
+    if (data.customer_phone) {
+      setEditablePhone(data.customer_phone);
+    }
+    if (data.item_name) {
+      setEditableItem(data.item_name);
+    }
     setEditableKarat(data.karat);
     setEditableWeight(String(data.gross_weight));
     setEditableWorkmanship(String(data.workmanship_per_gram));
@@ -301,7 +328,7 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       invoice_type: editableType,
       customer_name: editableName.trim() || 'عميل نقدي',
       customer_phone: editablePhone.trim() || undefined,
-      item_name: editableItem.trim() || 'قطعة ذهب',
+      item_name: editableItem.trim() || 'خاتم عيار 21',
       karat: editableKarat,
       gross_weight: parseFloat(editableWeight) || 1.0,
       stones_weight: 0,
