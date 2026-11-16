@@ -187,6 +187,9 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
   const [editableType, setEditableType] = useState<'sale' | 'buyback'>('sale');
 
   const recognitionRef = useRef<any>(null);
+  const shouldBeListeningRef = useRef(false);
+  const fullAccumulatedTranscriptRef = useRef('');
+  const currentSessionTranscriptRef = useRef('');
 
   // Check if browser supports SpeechRecognition
   useEffect(() => {
@@ -195,13 +198,21 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
     if (!SpeechRecognition) {
       setSupported(false);
     }
+
+    return () => {
+      shouldBeListeningRef.current = false;
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch {}
+      }
+    };
   }, []);
 
   const requestMicAndToggle = () => {
     setErrorMessage(null);
 
-    // If currently listening, stop it
-    if (isListening) {
+    // If currently listening, stop it explicitly
+    if (isListening || shouldBeListeningRef.current) {
+      shouldBeListeningRef.current = false;
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch {}
       }
@@ -225,6 +236,12 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       try { recognitionRef.current.abort(); } catch {}
     }
 
+    // Mark intent as actively listening
+    shouldBeListeningRef.current = true;
+    fullAccumulatedTranscriptRef.current = '';
+    currentSessionTranscriptRef.current = '';
+    setTranscript('');
+
     try {
       const recognition = new SpeechRecognition();
       recognition.lang = 'ar-EG'; // Egyptian Arabic
@@ -239,44 +256,66 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       };
 
       recognition.onresult = (event: any) => {
-        let fullTranscript = '';
+        let segment = '';
         for (let i = 0; i < event.results.length; ++i) {
-          fullTranscript += event.results[i][0].transcript + ' ';
+          segment += event.results[i][0].transcript + ' ';
         }
-        const clean = fullTranscript.trim();
-        if (clean) {
-          setTranscript(clean);
-          processSpeech(clean);
+        currentSessionTranscriptRef.current = segment.trim();
+
+        const combined = (fullAccumulatedTranscriptRef.current + ' ' + currentSessionTranscriptRef.current).trim();
+        if (combined) {
+          setTranscript(combined);
+          processSpeech(combined);
         }
       };
 
       recognition.onerror = (event: any) => {
         console.warn('Speech recognition error event:', event.error);
         if (event.error === 'not-allowed') {
+          shouldBeListeningRef.current = false;
           setErrorMessage('⚠️ تم حظر إذن الميكروفون من الهاتف. اضغط على رمز القفل 🔒 أعلى الشاشة بجوار الرابط وفعّل الميكروفون (Allow Microphone).');
+          setIsListening(false);
         } else if (event.error === 'network') {
+          shouldBeListeningRef.current = false;
           setErrorMessage('⚠️ خدمة الصوت تتطلب اتصالاً بالإنترنت. يمكنك كتابة البيانات في الصندوق أدناه لتحليلها.');
+          setIsListening(false);
         } else if (event.error === 'audio-capture') {
+          shouldBeListeningRef.current = false;
           setErrorMessage('⚠️ تعذر تشغيل الميكروفون. تأكد من إغلاق أي تطبيق آخر يستخدم الصوت.');
+          setIsListening(false);
         } else if (event.error === 'no-speech') {
-          // Normal silence, don't show disturbing error
-        } else {
-          setErrorMessage(`تنبيه: ${event.error}. تحدث بوضوح واضغط للتجربة مجدداً.`);
+          // Normal silence pause, keep listening!
         }
-        setIsListening(false);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
+        // If user has not stopped, auto-restart to keep listening continuously across pauses!
+        if (shouldBeListeningRef.current) {
+          if (currentSessionTranscriptRef.current) {
+            fullAccumulatedTranscriptRef.current = (fullAccumulatedTranscriptRef.current + ' ' + currentSessionTranscriptRef.current).trim();
+            currentSessionTranscriptRef.current = '';
+          }
+          try {
+            recognition.start();
+          } catch {
+            setTimeout(() => {
+              if (shouldBeListeningRef.current) {
+                try { recognition.start(); } catch {}
+              }
+            }, 120);
+          }
+        } else {
+          setIsListening(false);
+        }
       };
 
       recognitionRef.current = recognition;
-      setTranscript('');
 
       // Directly invoke start() synchronously in the user touch event
       recognition.start();
     } catch (err: any) {
       console.warn('SpeechRecognition direct start error:', err);
+      shouldBeListeningRef.current = false;
       setErrorMessage('تعذر بدء الميكروفون. تأكد من استخدام متصفح Chrome ومنح الصلاحية.');
       setIsListening(false);
     }
@@ -312,7 +351,22 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
     processSpeech(sampleText);
   };
 
+  const handleClose = () => {
+    shouldBeListeningRef.current = false;
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    setIsListening(false);
+    onClose();
+  };
+
   const handleApply = () => {
+    shouldBeListeningRef.current = false;
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+    setIsListening(false);
+
     const finalData: VoiceExtractedData = {
       invoice_type: editableType,
       customer_name: editableName.trim() || 'عميل نقدي',
@@ -352,7 +406,7 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -402,10 +456,15 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
           <div className="text-center">
             <div className="text-sm font-bold text-slate-200">
               {isListening ? (
-                <span className="text-rose-400 flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                  أستمع إليك الآن... تحدث بطبيعتك (اضغط للإيقاف)
-                </span>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-rose-400 flex items-center justify-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    الميكروفون مستمر في الاستماع (تحدث براحتك وبطبيعتك)
+                  </span>
+                  <span className="text-[11px] text-amber-300/90 font-normal">
+                    لن يقفل لوحده.. اضغط على الزر الأحمر عند الانتهاء من الكلام
+                  </span>
+                </div>
               ) : (
                 'اضغط وتحدث لإملاء الفاتورة'
               )}
@@ -547,7 +606,7 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
         <div className="flex items-center justify-between gap-3 pt-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
           >
             إلغاء
