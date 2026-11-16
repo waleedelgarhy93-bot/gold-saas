@@ -60,20 +60,6 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   // Voice AI Dictation Modal
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
 
-  const handleApplyVoiceData = (data: VoiceExtractedData) => {
-    if (data.invoice_type) setInvoiceType(data.invoice_type);
-    if (data.customer_name) setCustomerName(data.customer_name);
-    if (data.customer_phone) setCustomerPhone(data.customer_phone);
-    if (data.customer_national_id) setCustomerNationalId(data.customer_national_id);
-    if (data.item_name) setItemName(data.item_name);
-    if (data.karat) setKarat(data.karat);
-    if (data.gross_weight) setGrossWeight(String(data.gross_weight));
-    if (data.stones_weight !== undefined) setStonesWeight(String(data.stones_weight));
-    if (data.workmanship_per_gram !== undefined && data.invoice_type === 'sale') {
-      setWorkmanship(String(data.workmanship_per_gram));
-    }
-  };
-
   // Update customer when scanned from AI
   useEffect(() => {
     if (scannedCustomer) {
@@ -117,6 +103,53 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
   const defaultUnitPrice = getPricePerGram(karat, invoiceType);
   const effectiveUnitPrice = priceInput.trim() !== '' ? (parseFloat(priceInput) || 0) : defaultUnitPrice;
+
+  const handleApplyVoiceData = (data: VoiceExtractedData) => {
+    const targetType = data.invoice_type || 'sale';
+    setInvoiceType(targetType);
+
+    if (data.customer_name && data.customer_name !== 'عميل نقدي') {
+      setCustomerName(data.customer_name);
+    }
+    if (data.customer_phone) setCustomerPhone(data.customer_phone);
+    if (data.customer_national_id) setCustomerNationalId(data.customer_national_id);
+
+    // Calculate item and add directly to items array!
+    const gross = data.gross_weight || 10.0;
+    const stones = data.stones_weight || 0.0;
+    const net = Math.max(0, parseFloat((gross - stones).toFixed(3)));
+    const karatVal = data.karat || 21;
+    const pricePerGram = getPricePerGram(karatVal, targetType);
+    const work = targetType === 'sale' ? (data.workmanship_per_gram || 120) : 0;
+    const vat = targetType === 'sale' ? (parseFloat(stampVat) || 25) : 0;
+
+    const rawCost = net * pricePerGram;
+    const workCost = net * work;
+    const vatCost = net * vat;
+    const totalLine = parseFloat((rawCost + workCost + vatCost).toFixed(2));
+
+    const newItem: POSItem = {
+      id: Math.random().toString(36).substring(2, 9),
+      item_name: data.item_name || 'قطعة ذهب',
+      karat: karatVal,
+      gross_weight: gross,
+      stones_weight: stones,
+      net_weight: net,
+      price_per_gram: pricePerGram,
+      workmanship_per_gram: work,
+      stamp_vat_per_gram: vat,
+      total_item_price: totalLine,
+    };
+
+    setItems((prev) => [...prev, newItem]);
+
+    // Also update current inputs
+    setItemName(data.item_name || 'غويشة عيار 21');
+    setKarat(karatVal);
+    setGrossWeight(String(gross));
+    setStonesWeight(String(stones));
+    setWorkmanship(String(work));
+  };
 
   const loadPickerItems = async (section: 'new' | 'scrap', term: string) => {
     setPickerLoading(true);

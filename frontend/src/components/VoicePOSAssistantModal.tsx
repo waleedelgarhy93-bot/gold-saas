@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, X, Volume2 } from 'lucide-react';
 import type { GoldPrices } from '../types';
 
 export interface VoiceExtractedData {
@@ -23,7 +23,7 @@ interface VoicePOSAssistantModalProps {
 }
 
 // Convert eastern Arabic numerals (٠-٩) to standard (0-9)
-function normalizeArabicDigits(str: string): string {
+export function normalizeArabicDigits(str: string): string {
   return str.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
 }
 
@@ -33,9 +33,9 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
 
   // 1. Transaction Type
   let invoice_type: 'sale' | 'buyback' = 'sale';
-  if (/شراء|كسر|نشتري|نشترى|هنشتري|مرتجع/i.test(text)) {
+  if (/شراء|كسر|نشتري|نشترى|هنشتري|مرتجع|شاريين/i.test(text)) {
     invoice_type = 'buyback';
-  } else if (/بيع|نبيع|أبيع|هنبيع/i.test(text)) {
+  } else if (/بيع|نبيع|أبيع|هنبيع|مباع/i.test(text)) {
     invoice_type = 'sale';
   }
 
@@ -64,14 +64,14 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
   let customer_name = 'عميل نقدي';
   const namePatterns = [
     /(?:للأستاذ|للاستاذ|للأستاذة|للاستاذة|للمهندس|للدكتور|للحاج|للحاجة|للمدام|للعميل|للسيد|للعميلة|باسم|اسم العميل|اسمه|اسمها)\s+([^\d,\.\n]+?)(?=\s+(?:رقم|تليفون|موبايل|هاتف|خاتم|دبلة|سلسلة|غويشة|غوايش|حلق|انسيال|سبيكة|جنيه|عيار|وزن|$))/i,
-    /(?:بيع ل|شراء من)\s+([^\d,\.\n]+?)(?=\s+(?:رقم|تليفون|موبايل|هاتف|خاتم|دبلة|سلسلة|غويشة|حلق|انسيال|سبيكة|$))/i,
+    /(?:بيع ل|شراء من|بيع لل|شراء من ال|لل)\s+([^\d,\.\n]+?)(?=\s+(?:رقم|تليفون|موبايل|هاتف|خاتم|دبلة|سلسلة|غويشة|حلق|انسيال|سبيكة|$))/i,
   ];
 
   for (const pat of namePatterns) {
     const match = text.match(pat);
     if (match && match[1]) {
       const cleaned = match[1].replace(/(?:أستاذ|استاذ|حاج|مدام|دكتور|مهندس)/g, '').trim();
-      if (cleaned.length >= 2) {
+      if (cleaned.length >= 2 && !/^(بيع|شراء|خاتم|دبلة|غويشة)$/.test(cleaned)) {
         customer_name = cleaned;
         break;
       }
@@ -79,7 +79,7 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
   }
 
   // 5. Item Name
-  let item_name = invoice_type === 'sale' ? 'غويشة عيار 21' : 'كسر ذهب عيار 21';
+  let item_name = invoice_type === 'sale' ? 'غويشة' : 'كسر ذهب';
   const itemKeywords = [
     'خاتم', 'دبلة', 'غويشة', 'غوايش', 'سلسلة', 'سلاسل', 'كوليه', 'حلق', 'حلقان',
     'انسيال', 'اسورة', 'سوار', 'سبيكة', 'سبائك', 'جنيه', 'نصف جنيه', 'ربع جنيه',
@@ -88,13 +88,14 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
 
   for (const kw of itemKeywords) {
     if (text.includes(kw)) {
-      // Check if brand mentioned
+      // Check if brand or model mentioned
       let brand = '';
       if (/لازوردي/i.test(text)) brand = ' لازوردي';
       else if (/btc|بي تي سي/i.test(text)) brand = ' BTC';
       else if (/إيجيبت جولد|ايجيبت جولد/i.test(text)) brand = ' إيجيبت جولد';
       else if (/سويس جولد/i.test(text)) brand = ' سويس جولد';
       else if (/ماستر جولد/i.test(text)) brand = ' ماستر جولد';
+      else if (/كارتير/i.test(text)) brand = ' كارتير';
 
       item_name = `${kw}${brand}`;
       break;
@@ -154,6 +155,8 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [supported, setSupported] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const [editableName, setEditableName] = useState('');
   const [editablePhone, setEditablePhone] = useState('');
   const [editableItem, setEditableItem] = useState('');
@@ -164,9 +167,11 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
 
   const recognitionRef = useRef<any>(null);
 
+  // Setup Web Speech Recognition
   useEffect(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
     if (!SpeechRecognition) {
       setSupported(false);
       return;
@@ -174,27 +179,39 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
 
     try {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'ar-EG'; // Egyptian Arabic
-      recognition.continuous = false;
+      recognition.lang = 'ar-EG'; // Egyptian Arabic dialect
+      recognition.continuous = true; // Keep listening so sentences aren't cut off
       recognition.interimResults = true;
 
       recognition.onstart = () => {
         setIsListening(true);
+        setErrorMessage(null);
       };
 
       recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          finalTranscript += event.results[i][0].transcript;
+        // Accumulate full transcript correctly from index 0
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          fullTranscript += event.results[i][0].transcript + ' ';
         }
-        if (finalTranscript) {
-          setTranscript(finalTranscript);
-          processSpeech(finalTranscript);
+        const clean = fullTranscript.trim();
+        if (clean) {
+          setTranscript(clean);
+          processSpeech(clean);
         }
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error:', event.error);
+        console.warn('Speech recognition error event:', event.error);
+        if (event.error === 'not-allowed') {
+          setErrorMessage('⚠️ تم حظر إذن الميكروفون من المتصفح. اضغط على رمز القفل 🔒 بجوار الرابط في المتصفح ثم اختر سماح (Allow Microphone).');
+        } else if (event.error === 'no-speech') {
+          // Ignore idle timeout
+        } else if (event.error === 'network') {
+          setErrorMessage('⚠️ خطأ اتصال بخدمة الصوت. يمكنك كتابة البيانات في الصندوق أدناه مباشرة لتحليلها فورياً.');
+        } else {
+          setErrorMessage(`تنبيه: ${event.error}. تحدث بوضوح أو اضغط مرة أخرى.`);
+        }
         setIsListening(false);
       };
 
@@ -215,21 +232,43 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
     };
   }, []);
 
-  const toggleListening = () => {
-    if (!recognitionRef.current) return;
+  const requestMicAndToggle = async () => {
+    setErrorMessage(null);
+
+    // If currently listening, stop it
     if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
-      setTranscript('');
-      try {
-        recognitionRef.current.start();
-      } catch {
-        recognitionRef.current.stop();
-        setTimeout(() => {
-          try { recognitionRef.current.start(); } catch {}
-        }, 150);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
       }
+      setIsListening(false);
+      return;
+    }
+
+    // Explicitly request user media to trigger permissions prompt reliably
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: any) {
+      console.warn('Microphone permission rejected:', err);
+      setErrorMessage('⚠️ يرجى السماح للمتصفح باستخدام الميكروفون عند ظهور رسالة الإذن بالأعلى.');
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      setErrorMessage('خدمة التعرف الصوتي غير مدعومة في هذا المتصفح. يرجى استخدام Google Chrome.');
+      return;
+    }
+
+    try {
+      setTranscript('');
+      recognitionRef.current.start();
+    } catch {
+      // If already started, stop and restart
+      try { recognitionRef.current.stop(); } catch {}
+      setTimeout(() => {
+        try { recognitionRef.current.start(); } catch {}
+      }, 150);
     }
   };
 
@@ -242,6 +281,19 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
     setEditableKarat(data.karat);
     setEditableWeight(String(data.gross_weight));
     setEditableWorkmanship(String(data.workmanship_per_gram));
+  };
+
+  const handleManualTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setTranscript(val);
+    if (val.trim()) {
+      processSpeech(val);
+    }
+  };
+
+  const handleLoadSample = (sampleText: string) => {
+    setTranscript(sampleText);
+    processSpeech(sampleText);
   };
 
   const handleApply = () => {
@@ -262,55 +314,62 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-amber-500/30 rounded-3xl max-w-xl w-full p-6 shadow-2xl relative text-slate-100 space-y-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+      <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-xl w-full p-6 shadow-2xl relative text-slate-100 space-y-4 max-h-[90vh] overflow-y-auto">
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
               <Mic className="w-5 h-5 text-slate-950 stroke-[2.5]" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                <span>المساعد الصوتي الذكي للذهب</span>
+                <span>المساعد الصوتي الذكي للصاغة</span>
                 <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/30 font-mono">
                   AI Voice
                 </span>
               </h2>
               <p className="text-xs text-slate-400">
-                تحدث بحرية بالعامية المصرية وسيقوم المساعد بتعبئة خانات الفاتورة فورياً
+                تحدث بحرية بالعامية وسيقوم المساعد بملء الفاتورة وإضافة الصنف تلقائياً
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+            className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Browser Support Check */}
+        {/* Error / Permission Banner */}
+        {errorMessage && (
+          <div className="bg-rose-500/15 border border-rose-500/40 rounded-2xl p-3 flex items-start gap-2.5 text-rose-300 text-xs">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">{errorMessage}</div>
+          </div>
+        )}
+
+        {/* Browser Not Supported Warning */}
         {!supported && (
-          <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-start gap-3 text-rose-300 text-xs">
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-start gap-2.5 text-amber-300 text-xs">
+            <Volume2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div>
-              <div className="font-bold mb-1">المتصفح لا يدعم ميزة التعرف الصوتي المباشر</div>
-              <div>يرجى استخدام متصفح Google Chrome أو Microsoft Edge للاستفادة من الإملاء الصوتي.</div>
+              <div className="font-bold">المتصفح لا يدعم ميزة التسجيل الصوتي المباشر</div>
+              <div>يرجى استخدام Google Chrome أو Edge، أو يمكنك كتابة الجملة في المربع أدناه للتحليل الفوري.</div>
             </div>
           </div>
         )}
 
-        {/* Listening Pulsing Button */}
-        <div className="flex flex-col items-center justify-center py-4 space-y-3">
+        {/* Main Mic Button & Pulse Animation */}
+        <div className="flex flex-col items-center justify-center py-2 space-y-2">
           <button
             type="button"
-            onClick={toggleListening}
-            disabled={!supported}
+            onClick={requestMicAndToggle}
             className={`relative group w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer shadow-2xl ${
               isListening
-                ? 'bg-rose-600 shadow-rose-600/50 scale-110 animate-pulse ring-4 ring-rose-400/30'
+                ? 'bg-rose-600 shadow-rose-600/50 scale-110 ring-4 ring-rose-400/40 animate-pulse'
                 : 'bg-gradient-to-br from-amber-500 to-amber-600 hover:scale-105 shadow-amber-500/30'
             }`}
           >
@@ -320,31 +379,56 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
               <Mic className="w-8 h-8 text-slate-950 stroke-[2.5]" />
             )}
             {isListening && (
-              <span className="absolute -inset-2 rounded-full border-2 border-rose-500/50 animate-ping" />
+              <span className="absolute -inset-2.5 rounded-full border-2 border-rose-500/50 animate-ping" />
             )}
           </button>
 
           <div className="text-center">
             <div className="text-sm font-bold text-slate-200">
-              {isListening ? '🎙️ أستمع إليك الآن... تحدث بطبيعتك' : 'اضغط على الميكروفون للتحدث'}
+              {isListening ? (
+                <span className="text-rose-400 flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                  أستمع إليك الآن... تحدث بطبيعتك (اضغط للإيقاف)
+                </span>
+              ) : (
+                'اضغط وتحدث لإملاء الفاتورة'
+              )}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              مثال: "بيع للأستاذ محمد تليفونه 01012345678 خاتم عيار 21 وزنه 4 جرام ونص مصنعية 90"
-            </div>
+          </div>
+
+          {/* Quick Examples */}
+          <div className="w-full flex flex-wrap items-center justify-center gap-1.5 pt-1">
+            <span className="text-[10px] text-slate-400">نماذج تجربة سريعة:</span>
+            <button
+              type="button"
+              onClick={() => handleLoadSample('بيع للأستاذ محمد تليفونه 01012345678 خاتم لازوردي عيار 21 وزنه 4 جرام ونص المصنعية 90')}
+              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-amber-300 px-2 py-0.5 rounded-lg border border-slate-700 transition cursor-pointer"
+            >
+              خاتم لازوردي عيار 21 (4.5 جم)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleLoadSample('شراء كسر من الحاج إبراهيم عيار 18 وزنه 12 جرام')}
+              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-amber-300 px-2 py-0.5 rounded-lg border border-slate-700 transition cursor-pointer"
+            >
+              شراء كسر عيار 18 (12 جم)
+            </button>
           </div>
         </div>
 
-        {/* Speech Transcript Output */}
-        <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 min-h-[50px] flex items-center">
-          {transcript ? (
-            <p className="text-xs text-amber-300 font-medium leading-relaxed">
-              🗣️ "{transcript}"
-            </p>
-          ) : (
-            <p className="text-xs text-slate-500 italic">
-              سيظهر الكلام المنطوق هنا في نفس لحظة تحدثك...
-            </p>
-          )}
+        {/* Live Transcript / Manual Input */}
+        <div>
+          <label className="text-[11px] text-slate-400 mb-1 flex items-center justify-between">
+            <span>النص المنطوق (أو اكتب هنا للتعديل والتحليل):</span>
+            {transcript && <span className="text-[10px] text-emerald-400">تم التحليل الفوري ✓</span>}
+          </label>
+          <input
+            type="text"
+            value={transcript}
+            onChange={handleManualTextChange}
+            placeholder="مثال: بيع لمحمد تليفونه 010... خاتم عيار 21 وزنه 5 جرام مصنعية 100"
+            className="w-full bg-slate-950 border border-slate-700 rounded-2xl px-3.5 py-2.5 text-xs text-amber-300 placeholder:text-slate-600 focus:outline-none focus:border-amber-500 font-medium"
+          />
         </div>
 
         {/* Extracted Fields Preview & Confirmation */}
@@ -352,9 +436,9 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
           <div className="text-xs font-bold text-slate-300 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-amber-400">
               <Sparkles className="w-4 h-4" />
-              <span>البيانات المستخرجة تلقائياً (يمكنك تعديل أي خانة):</span>
+              <span>البيانات المستخرجة (جاهزة للتطبيق):</span>
             </span>
-            <span className="text-[10px] text-slate-400 bg-slate-700 px-2 py-0.5 rounded-lg">
+            <span className={`text-[10px] px-2 py-0.5 rounded-lg font-bold ${editableType === 'sale' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}`}>
               {editableType === 'sale' ? 'فاتورة بيع' : 'شراء كسر'}
             </span>
           </div>
@@ -459,7 +543,7 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
             className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-amber-500/20 transition cursor-pointer"
           >
             <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-            <span>تطبيق وتعبئة الفاتورة فورياً</span>
+            <span>تطبيق وإضافة الصنف للفاتورة فوراً</span>
           </button>
         </div>
 
