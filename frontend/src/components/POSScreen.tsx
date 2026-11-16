@@ -7,6 +7,8 @@ import {
 import { createInvoiceAPI, fetchInventory } from '../api';
 import { downloadInvoicePDF, sendInvoiceViaWhatsApp } from '../utils/pdfGenerator';
 import { VoicePOSAssistantModal, type VoiceExtractedData } from './VoicePOSAssistantModal';
+import { FieldVoiceButton } from './FieldVoiceButton';
+import type { FieldVoiceType } from '../utils/arabicVoiceParser';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -57,8 +59,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   const [pickerSearch, setPickerSearch] = useState('');
   const [selectedStock, setSelectedStock] = useState<InventoryItem | null>(null);
 
-  // Voice AI Dictation Modal
+  // Voice AI Dictation Modal & Focused Field Voice
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [activeVoiceField, setActiveVoiceField] = useState<{
+    id: string;
+    label: string;
+    type: FieldVoiceType;
+    setter: (val: string) => void;
+  } | null>(null);
 
   // Update customer when scanned from AI
   useEffect(() => {
@@ -600,41 +608,68 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-slate-400 mb-1">اسم العميل</label>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="عميل نقدي"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'customerName', label: 'اسم العميل', type: 'name', setter: setCustomerName })}
+                    placeholder="عميل نقدي"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                  <FieldVoiceButton
+                    fieldType="name"
+                    fieldLabel="اسم العميل"
+                    onValueChange={setCustomerName}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs text-slate-400 mb-1">الرقم القومي (14 رقم)</label>
-                <input
-                  type="text"
-                  value={customerNationalId}
-                  onChange={(e) => setCustomerNationalId(e.target.value)}
-                  placeholder="2950101..."
-                  maxLength={14}
-                  className={`w-full bg-slate-950 border rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none ${
-                    invoiceType === 'buyback' && !customerNationalId
-                      ? 'border-rose-500/50 bg-rose-950/20'
-                      : 'border-slate-700 focus:border-amber-500'
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={customerNationalId}
+                    onChange={(e) => setCustomerNationalId(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'customerNationalId', label: 'الرقم القومي', type: 'national_id', setter: setCustomerNationalId })}
+                    placeholder="2950101..."
+                    maxLength={14}
+                    className={`w-full bg-slate-950 border rounded-xl pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none ${
+                      invoiceType === 'buyback' && !customerNationalId
+                        ? 'border-rose-500/50 bg-rose-950/20'
+                        : 'border-slate-700 focus:border-amber-500'
+                    }`}
+                  />
+                  <FieldVoiceButton
+                    fieldType="national_id"
+                    fieldLabel="الرقم القومي"
+                    onValueChange={setCustomerNationalId}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs text-slate-400 mb-1">رقم الموبايل (واتساب)</label>
                 <div className="flex gap-2">
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="010..."
-                    className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
-                  />
+                  <div className="relative flex-1 min-w-0">
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      onFocus={() => setActiveVoiceField({ id: 'customerPhone', label: 'رقم الموبايل', type: 'phone', setter: setCustomerPhone })}
+                      placeholder="010..."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                    />
+                    <FieldVoiceButton
+                      fieldType="phone"
+                      fieldLabel="رقم الموبايل"
+                      onValueChange={setCustomerPhone}
+                      className="absolute left-2 top-1/2 -translate-y-1/2"
+                    />
+                  </div>
                   {canUseContacts && (
                     <button
                       type="button"
@@ -736,13 +771,22 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <div className="sm:col-span-2">
                 <label className="block text-xs text-slate-400 mb-1">اسم ووصف الصنف</label>
-                <input
-                  type="text"
-                  value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
-                  placeholder="مثال: خاتم سوليتير، إسورة، سبيكة..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={itemName}
+                    onChange={(e) => setItemName(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'itemName', label: 'اسم الصنف', type: 'item', setter: setItemName })}
+                    placeholder="مثال: خاتم سوليتير، إسورة، سبيكة..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                  <FieldVoiceButton
+                    fieldType="item"
+                    fieldLabel="اسم الصنف"
+                    onValueChange={setItemName}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
               </div>
 
               <div>
@@ -763,14 +807,23 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                 <label className="block text-xs text-slate-400 mb-1">
                   سعر الجرام ({invoiceType === 'sale' ? 'بيع' : 'شراء'})
                 </label>
-                <input
-                  type="number"
-                  step="1"
-                  value={priceInput}
-                  onChange={(e) => setPriceInput(e.target.value)}
-                  placeholder={defaultUnitPrice.toFixed(0)}
-                  className="w-full bg-slate-950 border border-amber-500/40 rounded-xl px-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="1"
+                    value={priceInput}
+                    onChange={(e) => setPriceInput(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'priceInput', label: 'سعر الجرام', type: 'money', setter: setPriceInput })}
+                    placeholder={defaultUnitPrice.toFixed(0)}
+                    className="w-full bg-slate-950 border border-amber-500/40 rounded-xl pl-9 pr-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
+                  />
+                  <FieldVoiceButton
+                    fieldType="money"
+                    fieldLabel="سعر الجرام"
+                    onValueChange={setPriceInput}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
                 <p className="text-[10px] mt-1 text-slate-500">
                   {priceInput.trim() !== ''
                     ? `سعر معدّل يدوياً (الأساسي ${defaultUnitPrice.toLocaleString()} ج.م)`
@@ -783,52 +836,88 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80">
               <div>
                 <label className="block text-xs text-amber-300 font-medium mb-1">الوزن القائم (جرام)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={grossWeight}
-                  onChange={(e) => setGrossWeight(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-3 py-2 text-base font-bold font-mono text-amber-300 focus:outline-none focus:border-amber-400"
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={grossWeight}
+                    onChange={(e) => setGrossWeight(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'grossWeight', label: 'الوزن القائم', type: 'weight', setter: setGrossWeight })}
+                    placeholder="0.00"
+                    className="w-full bg-slate-900 border border-amber-500/40 rounded-xl pl-9 pr-3 py-2 text-base font-bold font-mono text-amber-300 focus:outline-none focus:border-amber-400"
+                  />
+                  <FieldVoiceButton
+                    fieldType="weight"
+                    fieldLabel="الوزن القائم"
+                    onValueChange={setGrossWeight}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs text-slate-400 mb-1">خصم فصوص/شوائب (g)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={stonesWeight}
-                  onChange={(e) => setStonesWeight(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={stonesWeight}
+                    onChange={(e) => setStonesWeight(e.target.value)}
+                    onFocus={() => setActiveVoiceField({ id: 'stonesWeight', label: 'وزن الفصوص', type: 'weight', setter: setStonesWeight })}
+                    placeholder="0.00"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
+                  />
+                  <FieldVoiceButton
+                    fieldType="weight"
+                    fieldLabel="وزن الفصوص"
+                    onValueChange={setStonesWeight}
+                    className="absolute left-2 top-1/2 -translate-y-1/2"
+                  />
+                </div>
               </div>
 
               {invoiceType === 'sale' ? (
                 <>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">المصنعية للجرام (ج.م)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={workmanship}
-                      onChange={(e) => setWorkmanship(e.target.value)}
-                      placeholder="120"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="1"
+                        value={workmanship}
+                        onChange={(e) => setWorkmanship(e.target.value)}
+                        onFocus={() => setActiveVoiceField({ id: 'workmanship', label: 'المصنعية', type: 'money', setter: setWorkmanship })}
+                        placeholder="120"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
+                      />
+                      <FieldVoiceButton
+                        fieldType="money"
+                        fieldLabel="المصنعية"
+                        onValueChange={setWorkmanship}
+                        className="absolute left-2 top-1/2 -translate-y-1/2"
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">الدمغة والقيمة المضافة (ج.م)</label>
-                    <input
-                      type="number"
-                      step="1"
-                      value={stampVat}
-                      onChange={(e) => setStampVat(e.target.value)}
-                      placeholder="25"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="1"
+                        value={stampVat}
+                        onChange={(e) => setStampVat(e.target.value)}
+                        onFocus={() => setActiveVoiceField({ id: 'stampVat', label: 'الدمغة والضريبة', type: 'money', setter: setStampVat })}
+                        placeholder="25"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
+                      />
+                      <FieldVoiceButton
+                        fieldType="money"
+                        fieldLabel="الدمغة والضريبة"
+                        onValueChange={setStampVat}
+                        className="absolute left-2 top-1/2 -translate-y-1/2"
+                      />
+                    </div>
                   </div>
                 </>
               ) : (
@@ -1127,6 +1216,32 @@ export const POSScreen: React.FC<POSScreenProps> = ({
         onApplyData={handleApplyVoiceData}
         currentPrices={prices}
       />
+
+      {/* Floating Active Cursor Voice Bar (علامة الإدراج النشطة) */}
+      {activeVoiceField && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 border border-amber-500/70 shadow-2xl rounded-2xl px-4 py-2.5 flex items-center gap-3 backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200 max-w-[94vw]">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="text-xs text-slate-200 truncate">
+              إملاء صوتي لـ: <strong className="text-amber-400 font-bold">{activeVoiceField.label}</strong>
+            </span>
+          </div>
+          <FieldVoiceButton
+            fieldType={activeVoiceField.type}
+            fieldLabel={activeVoiceField.label}
+            onValueChange={activeVoiceField.setter}
+            size="md"
+          />
+          <button
+            type="button"
+            onClick={() => setActiveVoiceField(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer text-xs"
+            title="إخفاء شريط الإملاء"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };
