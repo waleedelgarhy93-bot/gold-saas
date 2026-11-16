@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import type { GoldPrices, POSItem, Invoice, InventoryItem, ShopInfo } from '../types';
 import { 
   Plus, Trash2, ShoppingBag, ArrowDownLeft, Camera, Printer, 
-  Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search, FileDown
+  Send, Sparkles, User, CheckCircle2, Package, Phone, X, Search, FileDown, Mic
 } from 'lucide-react';
 import { createInvoiceAPI, fetchInventory } from '../api';
 import { downloadInvoicePDF, sendInvoiceViaWhatsApp } from '../utils/pdfGenerator';
+import { VoicePOSAssistantModal, type VoiceExtractedData } from './VoicePOSAssistantModal';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -55,6 +56,23 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [selectedStock, setSelectedStock] = useState<InventoryItem | null>(null);
+
+  // Voice AI Dictation Modal
+  const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+
+  const handleApplyVoiceData = (data: VoiceExtractedData) => {
+    if (data.invoice_type) setInvoiceType(data.invoice_type);
+    if (data.customer_name) setCustomerName(data.customer_name);
+    if (data.customer_phone) setCustomerPhone(data.customer_phone);
+    if (data.customer_national_id) setCustomerNationalId(data.customer_national_id);
+    if (data.item_name) setItemName(data.item_name);
+    if (data.karat) setKarat(data.karat);
+    if (data.gross_weight) setGrossWeight(String(data.gross_weight));
+    if (data.stones_weight !== undefined) setStonesWeight(String(data.stones_weight));
+    if (data.workmanship_per_gram !== undefined && data.invoice_type === 'sale') {
+      setWorkmanship(String(data.workmanship_per_gram));
+    }
+  };
 
   // Update customer when scanned from AI
   useEffect(() => {
@@ -278,6 +296,25 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   };
 
   const handleWhatsAppSend = async () => {
+    // 0. If no items
+    if (!successInvoice && items.length === 0) {
+      alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة أولاً');
+      return;
+    }
+
+    // 1. Phone number check / prompt right away before opening windows
+    let activePhone = (customerPhone || successInvoice?.customer_phone || '').trim();
+    if (!activePhone) {
+      const entered = window.prompt(
+        '📱 لإرسال الفاتورة عبر واتساب:\nمن فضلك أدخل رقم هاتف العميل (مثال: 010... أو 011...):',
+        ''
+      );
+      if (entered && entered.trim()) {
+        activePhone = entered.trim();
+        setCustomerPhone(activePhone);
+      }
+    }
+
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     let waWindow: Window | null = null;
     if (!isMobile) {
@@ -288,20 +325,13 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       }
     }
 
-    // 1. If invoice is already saved and shown in banner
+    // 2. If invoice is already saved and shown in banner
     if (successInvoice) {
       const invToSend = {
         ...successInvoice,
-        customer_phone: successInvoice.customer_phone || customerPhone || undefined,
+        customer_phone: activePhone || successInvoice.customer_phone || undefined,
       };
       sendInvoiceViaWhatsApp(invToSend, shopInfo, waWindow);
-      return;
-    }
-
-    // 2. If no items
-    if (items.length === 0) {
-      if (waWindow) waWindow.close();
-      alert('من فضلك أضف صنفاً واحداً على الأقل للفاتورة أولاً');
       return;
     }
 
@@ -318,7 +348,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       invoice_number: `INV-${Date.now().toString().slice(-4)}`,
       invoice_type: invoiceType,
       customer_name: customerName || 'عميل نقدي',
-      customer_phone: customerPhone || undefined,
+      customer_phone: activePhone || undefined,
       customer_national_id: customerNationalId || undefined,
       total_gross_weight: totalGrossWeight,
       total_net_weight: totalNetWeight,
@@ -346,6 +376,10 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       })),
       created_at: new Date().toISOString(),
     };
+
+    if (savedInvoice && activePhone && !savedInvoice.customer_phone) {
+      savedInvoice.customer_phone = activePhone;
+    }
 
     sendInvoiceViaWhatsApp(targetInvoice, shopInfo, waWindow);
   };
@@ -476,6 +510,16 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           >
             <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
             <span>فحص سبيكة</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsVoiceModalOpen(true)}
+            className="col-span-2 sm:col-auto flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500/20 via-amber-500/30 to-amber-600/30 hover:from-amber-500/40 hover:to-amber-600/50 text-amber-300 border border-amber-500/50 px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer shadow-sm"
+            title="إملاء بيانات الفاتورة بالميكروفون بالعامية المصرية"
+          >
+            <Mic className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+            <span>إملاء صوتي (AI)</span>
           </button>
         </div>
       </div>
@@ -1036,6 +1080,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Voice Dictation Assistant Modal */}
+      <VoicePOSAssistantModal
+        isOpen={isVoiceModalOpen}
+        onClose={() => setIsVoiceModalOpen(false)}
+        onApplyData={handleApplyVoiceData}
+        currentPrices={prices}
+      />
     </div>
   );
 };

@@ -187,15 +187,23 @@ export const TrustsView: React.FC<TrustsViewProps> = ({ shopInfo, isAdmin }) => 
     let formattedPhone = cleanPhone;
     if (formattedPhone.startsWith('002')) {
       formattedPhone = formattedPhone.substring(2);
+    } else if (formattedPhone.startsWith('00')) {
+      formattedPhone = formattedPhone.substring(2);
     } else if (formattedPhone.startsWith('0')) {
       formattedPhone = `2${formattedPhone}`;
     } else if (formattedPhone.length === 10 && !formattedPhone.startsWith('2')) {
       formattedPhone = `20${formattedPhone}`;
     }
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const encoded = encodeURIComponent(msg);
     const url = formattedPhone
-      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`
-      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+      ? (isMobile
+          ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encoded}`
+          : `https://web.whatsapp.com/send?phone=${formattedPhone}&text=${encoded}`)
+      : (isMobile
+          ? `https://api.whatsapp.com/send?text=${encoded}`
+          : `https://web.whatsapp.com/send?text=${encoded}`);
 
     try {
       const link = document.createElement('a');

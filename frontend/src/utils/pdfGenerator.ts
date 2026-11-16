@@ -80,9 +80,22 @@ export function sendInvoiceViaWhatsApp(
 
   let rawPhone = (invoice.customer_phone || '').replace(/\D/g, '');
 
+  // If no customer phone was registered, prompt the cashier for customer's phone
+  if (!rawPhone) {
+    const entered = window.prompt(
+      '📱 لإرسال الفاتورة عبر واتساب:\nأدخل رقم هاتف العميل (مثال: 010... أو 011...):',
+      ''
+    );
+    if (entered && entered.trim()) {
+      rawPhone = entered.replace(/\D/g, '');
+    }
+  }
+
   // Format Egyptian and international numbers
   let formattedPhone = rawPhone;
   if (formattedPhone.startsWith('002')) {
+    formattedPhone = formattedPhone.substring(2);
+  } else if (formattedPhone.startsWith('00')) {
     formattedPhone = formattedPhone.substring(2);
   } else if (formattedPhone.startsWith('0')) {
     formattedPhone = `2${formattedPhone}`;
@@ -91,11 +104,17 @@ export function sendInvoiceViaWhatsApp(
   }
 
   const encoded = encodeURIComponent(text);
-  const waUrl = formattedPhone
-    ? `https://wa.me/${formattedPhone}?text=${encoded}`
-    : `https://wa.me/?text=${encoded}`;
-
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // Directly target WhatsApp Web on Desktop (bypasses wa.me block/ISP throttling in Egypt)
+  // and api.whatsapp.com on Mobile for seamless app opening
+  const waUrl = formattedPhone
+    ? (isMobile
+        ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encoded}`
+        : `https://web.whatsapp.com/send?phone=${formattedPhone}&text=${encoded}`)
+    : (isMobile
+        ? `https://api.whatsapp.com/send?text=${encoded}`
+        : `https://web.whatsapp.com/send?text=${encoded}`);
 
   if (isMobile) {
     if (preOpenedWindow) {
