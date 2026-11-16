@@ -188,21 +188,50 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
 
   const recognitionRef = useRef<any>(null);
 
-  // Setup Web Speech Recognition
+  // Check if browser supports SpeechRecognition
   useEffect(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSupported(false);
+    }
+  }, []);
+
+  const requestMicAndToggle = () => {
+    setErrorMessage(null);
+
+    // If currently listening, stop it
+    if (isListening) {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
+      setIsListening(false);
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
+      setErrorMessage('متصفح هذا الهاتف لا يدعم ميزة التسجيل الصوتي المباشر. يرجى استخدام Google Chrome أو Edge.');
       setSupported(false);
       return;
     }
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    // Abort any old instance
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch {}
+    }
+
     try {
       const recognition = new SpeechRecognition();
-      recognition.lang = 'ar-EG'; // Egyptian Arabic dialect
-      recognition.continuous = true; // Keep listening so sentences aren't cut off
+      recognition.lang = 'ar-EG'; // Egyptian Arabic
+      // On mobile (Android/iOS), continuous must be false to avoid speech engine abort/crash
+      recognition.continuous = !isMobile;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         setIsListening(true);
@@ -210,7 +239,6 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       };
 
       recognition.onresult = (event: any) => {
-        // Accumulate full transcript correctly from index 0
         let fullTranscript = '';
         for (let i = 0; i < event.results.length; ++i) {
           fullTranscript += event.results[i][0].transcript + ' ';
@@ -225,13 +253,15 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       recognition.onerror = (event: any) => {
         console.warn('Speech recognition error event:', event.error);
         if (event.error === 'not-allowed') {
-          setErrorMessage('⚠️ تم حظر إذن الميكروفون من المتصفح. اضغط على رمز القفل 🔒 بجوار الرابط في المتصفح ثم اختر سماح (Allow Microphone).');
-        } else if (event.error === 'no-speech') {
-          // Ignore idle timeout
+          setErrorMessage('⚠️ تم حظر إذن الميكروفون من الهاتف. اضغط على رمز القفل 🔒 أعلى الشاشة بجوار الرابط وفعّل الميكروفون (Allow Microphone).');
         } else if (event.error === 'network') {
-          setErrorMessage('⚠️ خطأ اتصال بخدمة الصوت. يمكنك كتابة البيانات في الصندوق أدناه مباشرة لتحليلها فورياً.');
+          setErrorMessage('⚠️ خدمة الصوت تتطلب اتصالاً بالإنترنت. يمكنك كتابة البيانات في الصندوق أدناه لتحليلها.');
+        } else if (event.error === 'audio-capture') {
+          setErrorMessage('⚠️ تعذر تشغيل الميكروفون. تأكد من إغلاق أي تطبيق آخر يستخدم الصوت.');
+        } else if (event.error === 'no-speech') {
+          // Normal silence, don't show disturbing error
         } else {
-          setErrorMessage(`تنبيه: ${event.error}. تحدث بوضوح أو اضغط مرة أخرى.`);
+          setErrorMessage(`تنبيه: ${event.error}. تحدث بوضوح واضغط للتجربة مجدداً.`);
         }
         setIsListening(false);
       };
@@ -241,55 +271,14 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       };
 
       recognitionRef.current = recognition;
-    } catch (e) {
-      console.warn('SpeechRecognition init error:', e);
-      setSupported(false);
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
-      }
-    };
-  }, []);
-
-  const requestMicAndToggle = async () => {
-    setErrorMessage(null);
-
-    // If currently listening, stop it
-    if (isListening) {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
-      setIsListening(false);
-      return;
-    }
-
-    // Explicitly request user media to trigger permissions prompt reliably
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-    } catch (err: any) {
-      console.warn('Microphone permission rejected:', err);
-      setErrorMessage('⚠️ يرجى السماح للمتصفح باستخدام الميكروفون عند ظهور رسالة الإذن بالأعلى.');
-      return;
-    }
-
-    if (!recognitionRef.current) {
-      setErrorMessage('خدمة التعرف الصوتي غير مدعومة في هذا المتصفح. يرجى استخدام Google Chrome.');
-      return;
-    }
-
-    try {
       setTranscript('');
-      recognitionRef.current.start();
-    } catch {
-      // If already started, stop and restart
-      try { recognitionRef.current.stop(); } catch {}
-      setTimeout(() => {
-        try { recognitionRef.current.start(); } catch {}
-      }, 150);
+
+      // Directly invoke start() synchronously in the user touch event
+      recognition.start();
+    } catch (err: any) {
+      console.warn('SpeechRecognition direct start error:', err);
+      setErrorMessage('تعذر بدء الميكروفون. تأكد من استخدام متصفح Chrome ومنح الصلاحية.');
+      setIsListening(false);
     }
   };
 
