@@ -3,6 +3,7 @@ Flask Native Backend for Gold SaaS on PythonAnywhere / WSGI
 Matches FastAPI API routes and JSON contracts 1:1.
 """
 import os
+import re
 import uuid
 import datetime
 from flask import Flask, request, jsonify
@@ -22,6 +23,7 @@ from services.inventory_logic import (
     upsert_customer, apply_invoice_inventory_effects,
     capital_summary, cash_balance, inventory_item_to_dict,
     customer_with_stats, ensure_default_types, reconcile_past_invoices, _sum,
+    cash_purchases_paid,
 )
 
 # Initialize database & reconcile inventory
@@ -763,6 +765,8 @@ def invoices_handler():
     finally:
         db.close()
 
+PARTIAL_SALE_NOTE_RE = re.compile(r"مباع من رصيد #(\d+)")
+
 @app.route("/api/invoices/<int:invoice_id>", methods=["DELETE"])
 def delete_invoice(invoice_id):
     db = get_db()
@@ -780,7 +784,29 @@ def delete_invoice(invoice_id):
         # استرجاع القطع المباعة في الفاتورة أو حذف سجلات البيع
         sold_logs = db.query(InventoryItem).filter(InventoryItem.sold_invoice_id == invoice_id).all()
         for s in sold_logs:
-            if s.source in ("sale", "direct_sale"):
+            if s.source == "sale":
+                # جزء مخصوم من قطعة: نرجّع وزنه للقطعة الأصلية بدل ما يضيع من المخزن
+                m = PARTIAL_SALE_NOTE_RE.search(s.notes or "")
+                origin = None
+                if m:
+                    origin = db.query(InventoryItem).filter(
+                        InventoryItem.id == int(m.group(1)),
+                        InventoryItem.shop_id == s.shop_id,
+                    ).first()
+                if origin and origin.status == "in_stock":
+                    origin.net_weight = round(float(origin.net_weight or 0.0) + float(s.net_weight or 0.0), 3)
+                    origin.gross_weight = round(float(origin.gross_weight or 0.0) + float(s.gross_weight or 0.0), 3)
+                    db.delete(s)
+                else:
+                    # القطعة الأصلية اتباعت أو اتحذفت: نرجّع الجزء كقطعة مستقلة في المخزن
+                    s.status = "in_stock"
+                    s.source = "returned"
+                    s.name = (s.name or "").replace(" (مباع)", "")
+                    s.sold_invoice_id = None
+                    s.sold_at = None
+                    s.sold_price = None
+                    s.notes = f"{s.notes or ''} | مرتجع بعد حذف الفاتورة #{inv.invoice_number}".strip(" |")
+            elif s.source == "direct_sale":
                 db.delete(s)
             else:
                 s.status = "in_stock"
@@ -1185,7 +1211,7 @@ def reset_inventory():
             else:
                 sales_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "sale")
                 buybacks_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "buyback")
-                purchases_paid = _sum(db, InventoryItem.purchase_total, InventoryItem.shop_id == shop_id, InventoryItem.paid_from_cash.is_(True))
+                purchases_paid = cash_purchases_paid(db, shop_id)
                 shop.opening_cash = round(-(sales_paid - buybacks_paid - purchases_paid), 2)
 
         db.commit()

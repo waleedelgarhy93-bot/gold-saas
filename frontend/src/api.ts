@@ -188,42 +188,33 @@ export async function saveGoldPrices(prices: GoldPrices): Promise<GoldPrices> {
   return prices;
 }
 
+// لا نحفظ الفاتورة محلياً في المتصفح: لو السيرفر لم يسجلها نرمي خطأ واضح
+// حتى لا تُطبع فاتورة غير مسجلة في قاعدة البيانات ولا مخصومة من المخزن.
 export async function createInvoiceAPI(invoiceData: any): Promise<Invoice> {
+  let res: Response;
   try {
-    const res = await fetch(`${API_BASE}/invoices`, {
+    res = await fetch(`${API_BASE}/invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(invoiceData),
     });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        ...invoiceData,
-        ...data,
-        items: (data.items && data.items.length > 0) ? data.items : (invoiceData.items || []),
-        customer_phone: data.customer_phone || invoiceData.customer_phone,
-        customer_national_id: data.customer_national_id || invoiceData.customer_national_id,
-      };
-    }
   } catch (e) {
-    console.warn('Backend not responding, saving invoice in local storage:', e);
+    console.warn('Backend not responding, invoice NOT saved:', e);
+    throw new Error('تعذر الاتصال بالسيرفر — لم يتم حفظ الفاتورة. تأكد من الإنترنت وحاول مرة أخرى.');
   }
 
-  const now = new Date();
-  const prefix = invoiceData.invoice_type === 'sale' ? 'INV-S' : 'INV-B';
-  const code = `${prefix}-${now.getFullYear().toString().slice(2)}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${Math.floor(1000 + Math.random() * 9000)}`;
-  
-  const savedInv: Invoice = {
-    ...invoiceData,
-    id: Date.now(),
-    invoice_number: code,
-    created_at: now.toISOString(),
-  };
+  if (!res.ok) {
+    throw new Error(await readError(res, 'السيرفر رفض حفظ الفاتورة — لم يتم حفظها. حاول مرة أخرى.'));
+  }
 
-  const stored = JSON.parse(localStorage.getItem('gold_invoices') || '[]');
-  stored.unshift(savedInv);
-  localStorage.setItem('gold_invoices', JSON.stringify(stored));
-  return savedInv;
+  const data = await res.json();
+  return {
+    ...invoiceData,
+    ...data,
+    items: (data.items && data.items.length > 0) ? data.items : (invoiceData.items || []),
+    customer_phone: data.customer_phone || invoiceData.customer_phone,
+    customer_national_id: data.customer_national_id || invoiceData.customer_national_id,
+  };
 }
 
 export async function fetchInvoices(params?: { limit?: number; invoice_type?: string; q?: string }): Promise<Invoice[]> {

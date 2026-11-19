@@ -4,7 +4,7 @@ Flask (production) and FastAPI (local) backends.
 """
 import datetime
 import requests
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from database import (
     Shop, Customer, GoldPrice, Invoice, InventoryItem, CashTransaction,
@@ -420,13 +420,26 @@ def _sum(db, column, *criteria):
     return float(value or 0.0)
 
 
+def cash_purchases_paid(db, shop_id=1):
+    """مشتريات المخزن المدفوعة من الخزينة.
+    قطع الكسر الداخلة من فواتير الشراء (source='buyback') مستبعدة لأن ثمنها
+    محسوب بالفعل في paid_amount لفاتورة الشراء، وإلا يُخصم المبلغ مرتين."""
+    return _sum(
+        db,
+        InventoryItem.purchase_total,
+        InventoryItem.shop_id == shop_id,
+        InventoryItem.paid_from_cash.is_(True),
+        or_(InventoryItem.source.is_(None), InventoryItem.source != "buyback"),
+    )
+
+
 def cash_balance(db, shop_id=1):
     shop = db.query(Shop).filter(Shop.id == shop_id).first()
     opening = float(shop.opening_cash or 0.0) if shop else 0.0
 
     sales_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "sale")
     buybacks_paid = _sum(db, Invoice.paid_amount, Invoice.shop_id == shop_id, Invoice.invoice_type == "buyback")
-    purchases_paid = _sum(db, InventoryItem.purchase_total, InventoryItem.shop_id == shop_id, InventoryItem.paid_from_cash.is_(True))
+    purchases_paid = cash_purchases_paid(db, shop_id)
 
     tx_in = _sum(db, CashTransaction.amount, CashTransaction.shop_id == shop_id, CashTransaction.direction == "in")
     tx_out = _sum(db, CashTransaction.amount, CashTransaction.shop_id == shop_id, CashTransaction.direction == "out")

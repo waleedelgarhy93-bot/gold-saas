@@ -338,6 +338,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       return saved;
     } catch (e) {
       console.error('Error saving invoice:', e);
+      alert(`⚠️ ${e instanceof Error ? e.message : 'لم يتم حفظ الفاتورة'}`);
       return null;
     }
   };
