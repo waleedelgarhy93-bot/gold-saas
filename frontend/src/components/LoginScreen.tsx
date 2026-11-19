@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from '../types';
-import { loginAPI } from '../api';
+import { loginAPI, changeUserPasswordAPI } from '../api';
 import { Coins, Lock, User as UserIcon, AlertCircle, ArrowLeft } from 'lucide-react';
 
 interface LoginScreenProps {
@@ -13,6 +13,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onGoTo
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // حساب بكلمة مرور افتراضية/ضعيفة: لازم يغيرها قبل الدخول
+  const [pendingUser, setPendingUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingUser) return;
+    setError(null);
+    if (newPassword.length < 6) {
+      setError('كلمة المرور الجديدة لازم تكون 6 حروف/أرقام على الأقل');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('كلمتا المرور غير متطابقتين');
+      return;
+    }
+    setLoading(true);
+    const result = await changeUserPasswordAPI(pendingUser.id, newPassword, pendingUser.token);
+    setLoading(false);
+    if (!result.ok || !result.token) {
+      setError(result.error || 'تعذر تغيير كلمة المرور');
+      return;
+    }
+    onLoginSuccess({ ...pendingUser, token: result.token, must_change_password: false });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +49,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onGoTo
     setLoading(false);
 
     if (res.success && res.user) {
+      if (res.user.must_change_password) {
+        setPendingUser(res.user);
+        return;
+      }
       onLoginSuccess(res.user);
     } else {
       setError(res.error || 'اسم المستخدم أو كلمة المرور غير صحيحة');
@@ -54,7 +84,42 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onGoTo
           </div>
         )}
 
-        {/* Clean Production Login Form */}
+        {pendingUser ? (
+          <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
+            <div className="bg-amber-950/40 border border-amber-500/30 p-3 rounded-xl text-amber-200 leading-relaxed">
+              لحماية حسابك وبيانات المحل، لازم تختار كلمة مرور جديدة قوية (6 حروف/أرقام على الأقل) قبل الدخول.
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1 font-medium">كلمة المرور الجديدة</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+                autoFocus
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-amber-500 transition"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1 font-medium">تأكيد كلمة المرور</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-amber-500 transition"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-3 rounded-xl text-sm transition cursor-pointer disabled:opacity-50"
+            >
+              {loading ? 'جاري الحفظ...' : 'حفظ كلمة المرور والدخول'}
+            </button>
+          </form>
+        ) : (
+        /* Clean Production Login Form */
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           <div>
             <label className="block text-slate-400 mb-1 font-medium">اسم المستخدم</label>
@@ -101,6 +166,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onGoTo
             )}
           </button>
         </form>
+        )}
 
         <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800">
           <span>نظام سحابي آمن ومشفر للصاغة</span>

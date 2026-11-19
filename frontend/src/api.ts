@@ -7,6 +7,42 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'https://gold-backend-web-97a37e51.hosted.cumin.dev/api';
 
+// ---------- Auth token ----------
+export function getAuthToken(): string | null {
+  try {
+    const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+    return u.token || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string) {
+  try {
+    const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
+    if (u && typeof u === 'object' && Object.keys(u).length > 0) {
+      u.token = token;
+      localStorage.setItem('gold_user', JSON.stringify(u));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+// كل طلبات السيرفر بتمر من هنا: بتضيف التوكن، ولو السيرفر رد 401 (الجلسة انتهت
+// أو كلمة المرور اتغيرت) بنخرج المستخدم لشاشة الدخول.
+async function apiFetch(url: string, init: RequestInit = {}, tokenOverride?: string): Promise<Response> {
+  const token = tokenOverride || getAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(url, { ...init, headers });
+  if (res.status === 401 && !url.endsWith('/auth/login') && localStorage.getItem('gold_user')) {
+    localStorage.removeItem('gold_user');
+    window.location.reload();
+  }
+  return res;
+}
+
 export const defaultPrices: GoldPrices = {
   sell_24k: 4285,
   sell_21k: 3750,
@@ -22,7 +58,7 @@ export const defaultPrices: GoldPrices = {
 
 export async function loginAPI(username: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await apiFetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -33,47 +69,9 @@ export async function loginAPI(username: string, password: string): Promise<{ su
     }
     return { success: false, error: data.detail || 'بيانات الدخول غير صحيحة' };
   } catch (e) {
-    console.warn('Backend login offline, fallback demo authentication:', e);
+    console.warn('Backend login offline:', e);
+    return { success: false, error: 'تعذر الاتصال بالسيرفر، تأكد من الإنترنت وحاول مرة أخرى' };
   }
-
-  // Fallback demo users if offline
-  if (username === 'superadmin' && password === '123') {
-    return {
-      success: true,
-      user: {
-        id: 1,
-        name: 'أ/ وليد المقدم (سوبر أدمن)',
-        username: 'superadmin',
-        role: 'super_admin',
-        shop_name: 'منصة الصاغة السحابية (النظام الرئيسي)'
-      }
-    };
-  } else if (username === 'admin' && password === '123') {
-    return {
-      success: true,
-      user: {
-        id: 2,
-        name: 'أ/ طه رجب (صاحب المحل)',
-        username: 'admin',
-        role: 'shop_admin',
-        shop_id: 1,
-        shop_name: 'مجوهرات الهدى'
-      }
-    };
-  } else if (username === 'cashier' && password === '123') {
-    return {
-      success: true,
-      user: {
-        id: 3,
-        name: 'محمود المصري (مساعد كاشير)',
-        username: 'cashier',
-        role: 'cashier',
-        shop_id: 1,
-        shop_name: 'مجوهرات الهدى'
-      }
-    };
-  }
-  return { success: false, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' };
 }
 
 export async function fetchShopInfo(shopId?: number): Promise<ShopInfo> {
@@ -85,7 +83,7 @@ export async function fetchShopInfo(shopId?: number): Promise<ShopInfo> {
   })();
 
   try {
-    const res = await fetch(`${API_BASE}/shop?shop_id=${targetId}`);
+    const res = await apiFetch(`${API_BASE}/shop?shop_id=${targetId}`);
     if (res.ok) {
       const data = await res.json();
       localStorage.setItem(`gold_shop_info_${targetId}`, JSON.stringify(data));
@@ -133,7 +131,7 @@ export async function updateShopInfoAPI(shopData: {
   localStorage.setItem(`gold_shop_info_${targetId}`, JSON.stringify(shopData));
   localStorage.setItem('gold_shop_info', JSON.stringify(shopData));
   try {
-    const res = await fetch(`${API_BASE}/shop?shop_id=${targetId}`, {
+    const res = await apiFetch(`${API_BASE}/shop?shop_id=${targetId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...shopData, id: targetId, shop_id: targetId }),
@@ -145,23 +143,32 @@ export async function updateShopInfoAPI(shopData: {
   }
 }
 
-export async function changeUserPasswordAPI(userId: number, newPassword: string): Promise<boolean> {
+export async function changeUserPasswordAPI(
+  userId: number,
+  newPassword: string,
+  tokenOverride?: string,
+): Promise<{ ok: boolean; token?: string; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/user/password`, {
+    const res = await apiFetch(`${API_BASE}/user/password`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userId, new_password: newPassword }),
-    });
-    return res.ok;
+    }, tokenOverride);
+    if (!res.ok) {
+      return { ok: false, error: await readError(res, 'تعذر تغيير كلمة المرور') };
+    }
+    const data = await res.json();
+    if (data.token && !tokenOverride) setAuthToken(data.token);
+    return { ok: true, token: data.token };
   } catch (e) {
     console.warn('Backend changePassword offline:', e);
-    return true;
+    return { ok: false, error: 'تعذر الاتصال بالسيرفر' };
   }
 }
 
 export async function fetchGoldPrices(): Promise<GoldPrices> {
   try {
-    const res = await fetch(`${API_BASE}/prices`);
+    const res = await apiFetch(`${API_BASE}/prices`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend not responding, using stored prices:', e);
@@ -173,7 +180,7 @@ export async function fetchGoldPrices(): Promise<GoldPrices> {
 export async function saveGoldPrices(prices: GoldPrices): Promise<GoldPrices> {
   localStorage.setItem('gold_prices', JSON.stringify(prices));
   try {
-    const res = await fetch(`${API_BASE}/prices`, {
+    const res = await apiFetch(`${API_BASE}/prices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(prices),
@@ -193,7 +200,7 @@ export async function saveGoldPrices(prices: GoldPrices): Promise<GoldPrices> {
 export async function createInvoiceAPI(invoiceData: any): Promise<Invoice> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/invoices`, {
+    res = await apiFetch(`${API_BASE}/invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(invoiceData),
@@ -225,7 +232,7 @@ export async function fetchInvoices(params?: { limit?: number; invoice_type?: st
     if (params?.q) search.set('q', params.q);
 
     const queryStr = search.toString();
-    const res = await fetch(`${API_BASE}/invoices${queryStr ? `?${queryStr}` : ''}`);
+    const res = await apiFetch(`${API_BASE}/invoices${queryStr ? `?${queryStr}` : ''}`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend not responding, loading local invoices:', e);
@@ -235,7 +242,7 @@ export async function fetchInvoices(params?: { limit?: number; invoice_type?: st
 
 export async function deleteInvoiceAPI(invoiceId: number): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/invoices/${invoiceId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/invoices/${invoiceId}`, { method: 'DELETE' });
     if (res.ok) {
       // Also update local storage if present
       const stored: Invoice[] = JSON.parse(localStorage.getItem('gold_invoices') || '[]');
@@ -260,7 +267,7 @@ export async function fetchAuditReportAPI(
     if (startDate && endDate) {
       url += `&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
     }
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend audit API offline:', e);
@@ -270,7 +277,7 @@ export async function fetchAuditReportAPI(
 
 export async function fetchStaffUsers(): Promise<StaffUser[]> {
   try {
-    const res = await fetch(`${API_BASE}/users`);
+    const res = await apiFetch(`${API_BASE}/users`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend fetchStaffUsers offline:', e);
@@ -283,7 +290,7 @@ export async function fetchStaffUsers(): Promise<StaffUser[]> {
 
 export async function createStaffUser(data: { name: string; username: string; password: string; role: string; pin_code?: string }): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/users`, {
+    const res = await apiFetch(`${API_BASE}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -297,7 +304,7 @@ export async function createStaffUser(data: { name: string; username: string; pa
 
 export async function deleteStaffUser(userId: number): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/users/${userId}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/users/${userId}`, { method: 'DELETE' });
     return res.ok;
   } catch (e) {
     console.warn('Error deleting staff user:', e);
@@ -307,7 +314,7 @@ export async function deleteStaffUser(userId: number): Promise<boolean> {
 
 export async function fetchSubscriberShops(): Promise<SubscriberShop[]> {
   try {
-    const res = await fetch(`${API_BASE}/admin/shops`);
+    const res = await apiFetch(`${API_BASE}/admin/shops`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend fetchSubscriberShops offline:', e);
@@ -329,7 +336,7 @@ export async function adminUpdateShopAPI(shopId: number, data: {
   owner_new_password?: string;
 }): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/admin/shops/${shopId}`, {
+    const res = await apiFetch(`${API_BASE}/admin/shops/${shopId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -351,7 +358,7 @@ export async function adminCreateShopAPI(data: {
   admin_password: string;
 }): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/admin/shops`, {
+    const res = await apiFetch(`${API_BASE}/admin/shops`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -375,7 +382,7 @@ async function readError(res: Response, fallback: string): Promise<string> {
 
 export async function fetchJewelryTypes(): Promise<JewelryType[]> {
   try {
-    const res = await fetch(`${API_BASE}/jewelry-types`);
+    const res = await apiFetch(`${API_BASE}/jewelry-types`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend jewelry types offline:', e);
@@ -385,7 +392,7 @@ export async function fetchJewelryTypes(): Promise<JewelryType[]> {
 
 export async function createJewelryType(name: string): Promise<{ ok: boolean; error?: string; type?: JewelryType }> {
   try {
-    const res = await fetch(`${API_BASE}/jewelry-types`, {
+    const res = await apiFetch(`${API_BASE}/jewelry-types`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -403,7 +410,7 @@ export async function createJewelryType(name: string): Promise<{ ok: boolean; er
 
 export async function deleteJewelryType(id: number): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/jewelry-types/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/jewelry-types/${id}`, { method: 'DELETE' });
     return res.ok;
   } catch (e) {
     console.warn('Error deleting jewelry type:', e);
@@ -423,7 +430,7 @@ export async function fetchInventory(params: {
   if (params.typeId) search.set('type_id', String(params.typeId));
   if (params.q) search.set('q', params.q);
   try {
-    const res = await fetch(`${API_BASE}/inventory?${search.toString()}`);
+    const res = await apiFetch(`${API_BASE}/inventory?${search.toString()}`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend inventory offline:', e);
@@ -433,7 +440,7 @@ export async function fetchInventory(params: {
 
 export async function addInventoryItem(data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/inventory`, {
+    const res = await apiFetch(`${API_BASE}/inventory`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -448,7 +455,7 @@ export async function addInventoryItem(data: Record<string, unknown>): Promise<{
 
 export async function updateInventoryItem(id: number, data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/inventory/${id}`, {
+    const res = await apiFetch(`${API_BASE}/inventory/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -463,7 +470,7 @@ export async function updateInventoryItem(id: number, data: Record<string, unkno
 
 export async function deleteInventoryItem(id: number): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/inventory/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API_BASE}/inventory/${id}`, { method: 'DELETE' });
     if (res.ok) return { ok: true };
     return { ok: false, error: await readError(res, 'تعذر حذف القطعة') };
   } catch (e) {
@@ -479,7 +486,7 @@ export async function resetInventoryAPI(scope: 'in_stock' | 'all' = 'all'): Prom
       const u = JSON.parse(localStorage.getItem('gold_user') || '{}');
       if (u.shop_id) shopId = u.shop_id;
     } catch {}
-    const res = await fetch(`${API_BASE}/inventory/reset`, {
+    const res = await apiFetch(`${API_BASE}/inventory/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scope, shop_id: shopId }),
@@ -497,7 +504,7 @@ export async function resetInventoryAPI(scope: 'in_stock' | 'all' = 'all'): Prom
 
 export async function fetchInventorySummary(): Promise<InventorySummary | null> {
   try {
-    const res = await fetch(`${API_BASE}/inventory/summary`);
+    const res = await apiFetch(`${API_BASE}/inventory/summary`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend inventory summary offline:', e);
@@ -507,7 +514,7 @@ export async function fetchInventorySummary(): Promise<InventorySummary | null> 
 
 export async function fetchCapital(): Promise<CapitalSummary | null> {
   try {
-    const res = await fetch(`${API_BASE}/capital`);
+    const res = await apiFetch(`${API_BASE}/capital`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend capital offline:', e);
@@ -517,7 +524,7 @@ export async function fetchCapital(): Promise<CapitalSummary | null> {
 
 export async function updateOpeningCash(openingCash: number): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/shop/opening-cash`, {
+    const res = await apiFetch(`${API_BASE}/shop/opening-cash`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ opening_cash: openingCash }),
@@ -531,7 +538,7 @@ export async function updateOpeningCash(openingCash: number): Promise<boolean> {
 
 export async function fetchCashTransactions(): Promise<CashTransactionRecord[]> {
   try {
-    const res = await fetch(`${API_BASE}/cash/transactions`);
+    const res = await apiFetch(`${API_BASE}/cash/transactions`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend cash transactions offline:', e);
@@ -546,7 +553,7 @@ export async function addCashTransaction(data: {
   category?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/cash/transactions`, {
+    const res = await apiFetch(`${API_BASE}/cash/transactions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -561,7 +568,7 @@ export async function addCashTransaction(data: {
 
 export async function fetchLivePrices(): Promise<{ ok: boolean; data?: LivePrices; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/prices/live`);
+    const res = await apiFetch(`${API_BASE}/prices/live`);
     if (res.ok) return { ok: true, data: await res.json() };
     return { ok: false, error: await readError(res, 'تعذر جلب الأسعار اللحظية') };
   } catch (e) {
@@ -573,7 +580,7 @@ export async function fetchLivePrices(): Promise<{ ok: boolean; data?: LivePrice
 export async function fetchCustomers(q?: string): Promise<CustomerRecord[]> {
   try {
     const suffix = q ? `?q=${encodeURIComponent(q)}` : '';
-    const res = await fetch(`${API_BASE}/customers${suffix}`);
+    const res = await apiFetch(`${API_BASE}/customers${suffix}`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Backend customers offline:', e);
@@ -588,7 +595,7 @@ export async function saveCustomer(data: {
   address?: string;
 }): Promise<{ ok: boolean; error?: string; customer?: CustomerRecord }> {
   try {
-    const res = await fetch(`${API_BASE}/customers`, {
+    const res = await apiFetch(`${API_BASE}/customers`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -606,7 +613,7 @@ export async function saveCustomer(data: {
 
 export async function payInvoiceAPI(invoiceId: number, amount: number): Promise<{ ok: boolean; error?: string; paid_amount?: number; remaining_amount?: number }> {
   try {
-    const res = await fetch(`${API_BASE}/invoices/${invoiceId}/pay`, {
+    const res = await apiFetch(`${API_BASE}/invoices/${invoiceId}/pay`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount }),
@@ -634,7 +641,7 @@ export async function fetchTrusts(trustType?: 'gold' | 'cash', status?: string):
     let url = `${API_BASE}/trusts?shop_id=${shopId}`;
     if (trustType) url += `&trust_type=${trustType}`;
     if (status) url += `&status=${status}`;
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Error fetching trusts:', e);
@@ -652,7 +659,7 @@ export async function fetchTrustsSummary(): Promise<TrustSummary> {
   };
   try {
     const shopId = getCurrentShopId();
-    const res = await fetch(`${API_BASE}/trusts/summary?shop_id=${shopId}`);
+    const res = await apiFetch(`${API_BASE}/trusts/summary?shop_id=${shopId}`);
     if (res.ok) return await res.json();
   } catch (e) {
     console.warn('Error fetching trusts summary:', e);
@@ -663,7 +670,7 @@ export async function fetchTrustsSummary(): Promise<TrustSummary> {
 export async function createTrustAPI(data: Partial<TrustItem>): Promise<{ ok: boolean; data?: TrustItem; error?: string }> {
   try {
     const shopId = getCurrentShopId();
-    const res = await fetch(`${API_BASE}/trusts`, {
+    const res = await apiFetch(`${API_BASE}/trusts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...data, shop_id: shopId }),
@@ -686,7 +693,7 @@ export async function updateTrustStatusAPI(
   settledNotes?: string
 ): Promise<{ ok: boolean; data?: TrustItem; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/trusts/${itemId}/status`, {
+    const res = await apiFetch(`${API_BASE}/trusts/${itemId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, notes, settled_notes: settledNotes }),
@@ -704,7 +711,7 @@ export async function updateTrustStatusAPI(
 
 export async function deleteTrustAPI(itemId: number): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE}/trusts/${itemId}`, {
+    const res = await apiFetch(`${API_BASE}/trusts/${itemId}`, {
       method: 'DELETE',
     });
     if (res.ok) return { ok: true };
@@ -721,7 +728,7 @@ export async function analyzeImageAPI(file: File, apiKey?: string): Promise<{ su
     formData.append('file', file);
     if (apiKey) formData.append('api_key', apiKey);
 
-    const res = await fetch(`${API_BASE}/vision/analyze`, {
+    const res = await apiFetch(`${API_BASE}/vision/analyze`, {
       method: 'POST',
       body: formData,
     });

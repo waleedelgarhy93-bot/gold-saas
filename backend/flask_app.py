@@ -6,7 +6,7 @@ import os
 import re
 import uuid
 import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -25,6 +25,11 @@ from services.inventory_logic import (
     customer_with_stats, ensure_default_types, reconcile_past_invoices, _sum,
     cash_purchases_paid,
 )
+from auth import (
+    hash_password, verify_password, is_weak_password, password_problem,
+    issue_token, read_token, token_matches_user,
+    unauthorized, forbidden, is_admin, is_super_admin,
+)
 
 # Initialize database & reconcile inventory
 init_db()
@@ -36,10 +41,80 @@ except Exception as _e:
     print(f"[startup] reconcile error: {_e}")
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+# الواجهة بتبعت التوكن في هيدر Authorization (مش كوكيز)، فمفيش داعي لـ credentials
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 def get_db():
     return SessionLocal()
+
+# ---------- Authentication guard ----------
+PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login", "/api/prices/live"}
+# مسارات مسموحة لحساب لازم يغيّر كلمة المرور قبل أي حاجة تانية
+MUST_CHANGE_ALLOWED = {"/api/user/password"}
+
+@app.before_request
+def require_auth():
+    if request.method == "OPTIONS" or request.path in PUBLIC_PATHS:
+        return None
+    if not request.path.startswith("/api/"):
+        return None
+
+    header = request.headers.get("Authorization", "")
+    token = header[7:].strip() if header.startswith("Bearer ") else ""
+    payload = read_token(token) if token else None
+    if not payload:
+        return unauthorized()
+
+    db = get_db()
+    try:
+        user = db.query(User).filter(User.id == payload.get("uid")).first()
+        if not user or not user.is_active or not token_matches_user(payload, user):
+            return unauthorized()
+        g.user_id = user.id
+        g.user_role = user.role
+        g.user_shop_id = user.shop_id
+    finally:
+        db.close()
+
+    if payload.get("mc") and request.path not in MUST_CHANGE_ALLOWED:
+        return forbidden("لازم تغيّر كلمة المرور الأول")
+    return None
+
+def _requested_shop_id():
+    raw = request.args.get("shop_id") or request.headers.get("X-Shop-Id")
+    if not raw and request.is_json:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            raw = body.get("shop_id") or body.get("id")
+    return raw
+
+def current_shop_id():
+    """المحل الخاص بالمستخدم من التوكن. السوبر أدمن بس يقدر يحدد محل تاني."""
+    if is_super_admin():
+        try:
+            raw = _requested_shop_id()
+            return int(raw) if raw else 1
+        except (ValueError, TypeError):
+            return 1
+    return g.user_shop_id or 1
+
+def owns(obj_shop_id):
+    return is_super_admin() or obj_shop_id == current_shop_id()
+
+def admin_only():
+    """يرجّع رد 403 لو المستخدم مش صاحب محل أو سوبر أدمن"""
+    return None if is_admin() else forbidden()
+
+def _user_json(user, shop=None):
+    return {
+        "id": user.id,
+        "name": user.name,
+        "username": user.username,
+        "role": user.role,
+        "shop_id": user.shop_id,
+        "shop_name": shop.name if shop else "منصة الصاغة السحابية",
+        "is_active": user.is_active,
+    }
 
 # --- Health check ---
 @app.route("/", methods=["GET"])
@@ -48,6 +123,28 @@ def health():
     return jsonify({"status": "healthy", "service": "Gold Jewelry SaaS API (Flask)"})
 
 # --- Unified Login ---
+TAHA_ALIASES = [
+    "taha", "admin", "taharagab", "طاهرجب", "طهرجب", "طه",
+    "الهدي", "الهدى", "محلالهدي", "محلالهدى", "مجوهراتالهدى", "مجوهراتالهدي"
+]
+
+def _find_login_user(db, raw_username):
+    u_lower = raw_username.lower().replace(" ", "")
+    # 1. Exact DB match
+    user = db.query(User).filter(User.username == raw_username).first()
+    # 2. Case-insensitive / trimmed match
+    if not user:
+        for u in db.query(User).all():
+            if u.username and u.username.lower().strip() == u_lower:
+                user = u
+                break
+    # 3. أسماء بديلة لحساب صاحب محل الهدى (لازم كلمة المرور الحقيقية برضه)
+    if not user and (u_lower in TAHA_ALIASES or "طه" in raw_username or "هدى" in raw_username or "هدي" in raw_username):
+        user = db.query(User).filter(User.username == "taha").first()
+        if not user:
+            user = db.query(User).filter(User.username == "admin").first()
+    return user
+
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     db = get_db()
@@ -55,114 +152,28 @@ def login():
         data = request.get_json(force=True, silent=True) or {}
         raw_username = str(data.get("username", "")).strip()
         raw_password = str(data.get("password", "")).strip()
-        u_lower = raw_username.lower().replace(" ", "")
 
-        # Aliases for Taha Ragab & Shop Admin
-        taha_aliases = [
-            "taha", "admin", "taharagab", "طاهرجب", "طهرجب", "طه", 
-            "الهدي", "الهدى", "محلالهدي", "محلالهدى", "مجوهراتالهدى", "مجوهراتالهدي"
-        ]
+        user = _find_login_user(db, raw_username) if raw_username else None
+        if not user or not user.is_active or not verify_password(user, raw_password):
+            return jsonify({"success": False, "detail": "اسم المستخدم أو كلمة المرور غير صحيحة"}), 401
 
-        # 1. Exact DB match
-        user = db.query(User).filter(User.username == raw_username).first()
-
-        # 2. Case-insensitive or trimmed DB match
-        if not user:
-            for u in db.query(User).all():
-                if u.username and u.username.lower().strip() == u_lower:
-                    user = u
-                    break
-
-        # 3. Alias match for Taha Ragab / Shop 1 Admin
-        if not user and (u_lower in taha_aliases or "طه" in raw_username or "هدى" in raw_username or "هدي" in raw_username):
-            user = db.query(User).filter(User.username == "taha").first()
-            if not user:
-                user = db.query(User).filter(User.username == "admin").first()
-            if not user:
-                user = db.query(User).filter(User.role == "shop_admin").first()
-
-        # Check DB User credentials
-        if user and user.is_active:
-            if user.password == raw_password or raw_password == "123":
-                shop = db.query(Shop).filter(Shop.id == user.shop_id).first() if user.shop_id else None
-                shop_name = shop.name if shop else "محل الذهب والمجوهرات"
-                owner_name = user.name or (f"{shop.owner_name} (صاحب المحل)" if shop else "صاحب المحل")
-                return jsonify({
-                    "success": True,
-                    "user": {
-                        "id": user.id,
-                        "name": owner_name,
-                        "username": user.username,
-                        "role": user.role,
-                        "shop_id": user.shop_id or (shop.id if shop else 1),
-                        "shop_name": shop_name,
-                        "is_active": user.is_active
-                    }
-                })
-
-        # Fallback instant credentials
-        demo_accounts = {
-            "superadmin": {
-                "password": "123",
-                "id": 1,
-                "name": "أ/ وليد المقدم (سوبر أدمن المنصة)",
-                "role": "super_admin",
-                "shop_id": None,
-                "shop_name": "منصة الصاغة السحابية",
-            },
-            "taha": {
-                "password": "123",
-                "id": 2,
-                "name": "أ/ طه رجب (صاحب محل الهدى)",
-                "role": "shop_admin",
-                "shop_id": 1,
-                "shop_name": "مجوهرات الهدى",
-            },
-            "admin": {
-                "password": "123",
-                "id": 2,
-                "name": "أ/ طه رجب (صاحب محل الهدى)",
-                "role": "shop_admin",
-                "shop_id": 1,
-                "shop_name": "مجوهرات الهدى",
-            },
-            "cashier": {
-                "password": "123",
-                "id": 3,
-                "name": "محمود المصري (مساعد كاشير)",
-                "role": "cashier",
-                "shop_id": 1,
-                "shop_name": "مجوهرات الهدى",
-            }
-        }
-
-        matched_key = None
-        if raw_username in demo_accounts:
-            matched_key = raw_username
-        elif u_lower in taha_aliases:
-            matched_key = "taha"
-
-        if matched_key and (raw_password == demo_accounts[matched_key]["password"] or raw_password == "123"):
-            acc = demo_accounts[matched_key]
-            shop = db.query(Shop).filter(Shop.id == acc["shop_id"]).first() if acc.get("shop_id") else None
-            shop_name = shop.name if shop else acc["shop_name"]
-            owner_name = f"{shop.owner_name} (صاحب المحل)" if (shop and acc["role"] == "shop_admin" and shop.owner_name) else acc["name"]
-            return jsonify({
-                "success": True,
-                "user": {
-                    "id": acc["id"],
-                    "name": owner_name,
-                    "username": acc.get("username", matched_key),
-                    "role": acc["role"],
-                    "shop_id": acc["shop_id"],
-                    "shop_name": shop_name,
-                    "is_active": True
-                }
-            })
-
-        return jsonify({"success": False, "detail": "اسم المستخدم أو كلمة المرور غير صحيحة"}), 401
+        db.commit()  # يحفظ ترقية كلمة المرور القديمة لصيغة مشفرة
+        must_change = is_weak_password(raw_password)
+        shop = db.query(Shop).filter(Shop.id == user.shop_id).first() if user.shop_id else None
+        user_data = _user_json(user, shop)
+        if shop and user.role == "shop_admin" and not user.name:
+            user_data["name"] = f"{shop.owner_name} (صاحب المحل)"
+        user_data["token"] = issue_token(user, must_change=must_change)
+        user_data["must_change_password"] = must_change
+        return jsonify({"success": True, "user": user_data})
     finally:
         db.close()
+
+def _can_manage_user(target):
+    """المستخدم نفسه، أو صاحب المحل لموظفي محله، أو السوبر أدمن"""
+    if target.id == g.user_id or is_super_admin():
+        return True
+    return g.user_role == "shop_admin" and target.shop_id == g.user_shop_id and target.role != "super_admin"
 
 # --- Quick Credentials & Password Management ---
 @app.route("/api/user/credentials", methods=["PUT", "POST"])
@@ -170,23 +181,13 @@ def update_user_credentials():
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
-        user_id = data.get("user_id")
-        target_username = str(data.get("username", "")).strip()
+        user_id = data.get("user_id") or g.user_id
         new_password = str(data.get("new_password") or data.get("password") or "").strip()
         new_username = str(data.get("new_username") or "").strip()
         new_name = str(data.get("name") or "").strip()
 
-        user = None
-        if user_id:
-            user = db.query(User).filter(User.id == user_id).first()
-        elif target_username:
-            user = db.query(User).filter(User.username == target_username).first()
-
-        if not user:
-            # Fallback to shop admin
-            user = db.query(User).filter(User.role == "shop_admin").first()
-
-        if not user:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not _can_manage_user(user):
             return jsonify({"detail": "المستخدم غير موجود"}), 404
 
         if new_username:
@@ -196,14 +197,17 @@ def update_user_credentials():
             user.username = new_username
 
         if new_password:
-            user.password = new_password
+            problem = password_problem(new_password)
+            if problem:
+                return jsonify({"detail": problem}), 400
+            user.password = hash_password(new_password)
 
         if new_name:
             user.name = new_name
 
         db.commit()
         db.refresh(user)
-        return jsonify({
+        result = {
             "success": True,
             "message": "تم تحديث بيانات الحساب بنجاح دون المساس بالمخزن أو الفواتير",
             "user": {
@@ -213,7 +217,10 @@ def update_user_credentials():
                 "role": user.role,
                 "shop_id": user.shop_id
             }
-        })
+        }
+        if user.id == g.user_id:
+            result["token"] = issue_token(user)
+        return jsonify(result)
     finally:
         db.close()
 
@@ -222,16 +229,12 @@ def update_user_credentials():
 def shop_settings():
     db = get_db()
     try:
-        data = request.get_json(force=True, silent=True) or {} if request.method == "PUT" else {}
-        raw_shop_id = data.get("id") or data.get("shop_id") or request.args.get("shop_id")
-        try:
-            shop_id = int(raw_shop_id) if raw_shop_id else 1
-        except (ValueError, TypeError):
-            shop_id = 1
+        data = (request.get_json(force=True, silent=True) or {}) if request.method == "PUT" else {}
+        if request.method == "PUT" and not is_admin():
+            return forbidden()
+        shop_id = current_shop_id()
 
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
-        if not shop:
-            shop = db.query(Shop).first()
         if not shop:
             return jsonify({"detail": "المحل غير مسجل"}), 404
 
@@ -290,24 +293,33 @@ def change_password():
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
-        user_id = data.get("user_id")
-        new_password = data.get("new_password")
-        if not user_id or not new_password:
+        user_id = data.get("user_id") or g.user_id
+        new_password = str(data.get("new_password") or "").strip()
+        if not new_password:
             return jsonify({"detail": "بيانات غير مكتملة"}), 400
+        problem = password_problem(new_password)
+        if problem:
+            return jsonify({"detail": problem}), 400
 
         user = db.query(User).filter(User.id == user_id).first()
-        if not user:
+        if not user or not _can_manage_user(user):
             return jsonify({"detail": "المستخدم غير موجود"}), 404
 
-        user.password = new_password
+        user.password = hash_password(new_password)
         db.commit()
-        return jsonify({"message": "تم تغيير كلمة المرور بنجاح"})
+        result = {"message": "تم تغيير كلمة المرور بنجاح"}
+        if user.id == g.user_id:
+            # كلمة المرور اتغيرت، فالتوكن القديم بطل: نرجّع توكن جديد للمستخدم نفسه
+            result["token"] = issue_token(user)
+        return jsonify(result)
     finally:
         db.close()
 
 # --- Super Admin View & Subscription Management ---
 @app.route("/api/admin/shops", methods=["GET", "POST"])
 def admin_shops():
+    if not is_super_admin():
+        return forbidden()
     db = get_db()
     try:
         if request.method == "GET":
@@ -373,7 +385,8 @@ def admin_shops():
             shop_id=new_shop.id,
             name=f"{new_shop.owner_name} (صاحب المحل)",
             username=admin_username,
-            password=data.get("admin_password", "123"),
+            # كلمة مرور ضعيفة/افتراضية تجبر صاحب المحل يغيّرها أول دخول
+            password=hash_password(str(data.get("admin_password") or "123").strip()),
             role="shop_admin",
             pin_code="1111"
         )
@@ -386,6 +399,8 @@ def admin_shops():
 
 @app.route("/api/admin/shops/<int:shop_id>", methods=["PUT"])
 def admin_update_shop(shop_id):
+    if not is_super_admin():
+        return forbidden()
     db = get_db()
     try:
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
@@ -404,7 +419,7 @@ def admin_update_shop(shop_id):
         if owner_new_password:
             owner_user = db.query(User).filter(User.shop_id == shop.id, User.role == "shop_admin").first()
             if owner_user:
-                owner_user.password = owner_new_password
+                owner_user.password = hash_password(str(owner_new_password).strip())
                 owner_user.name = f"{shop.owner_name} (صاحب المحل)"
 
         db.commit()
@@ -425,9 +440,11 @@ def admin_update_shop(shop_id):
 # --- Staff Management ---
 @app.route("/api/users", methods=["GET", "POST"])
 def shop_users():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         if request.method == "GET":
             users = db.query(User).filter(User.shop_id == shop_id).all()
             return jsonify([{
@@ -451,8 +468,8 @@ def shop_users():
             shop_id=shop_id,
             name=data.get("name", "مساعد كاشير"),
             username=username,
-            password=data.get("password", "123"),
-            role=data.get("role", "cashier"),
+            password=hash_password(str(data.get("password") or "123").strip()),
+            role=data.get("role") if data.get("role") in ("cashier", "shop_admin") else "cashier",
             pin_code=data.get("pin_code", "2222")
         )
         db.add(new_user)
@@ -475,9 +492,13 @@ def shop_users():
 def delete_shop_user(user_id):
     db = get_db()
     try:
+        if not is_admin():
+            return forbidden()
         u = db.query(User).filter(User.id == user_id).first()
-        if not u:
+        if not u or not owns(u.shop_id):
             return jsonify({"detail": "المستخدم غير موجود"}), 404
+        if u.id == g.user_id:
+            return jsonify({"detail": "لا يمكنك حذف حسابك أنت"}), 400
         if u.role == "super_admin":
             return jsonify({"detail": "لا يمكن حذف حساب السوبر أدمن"}), 403
         db.delete(u)
@@ -487,12 +508,18 @@ def delete_shop_user(user_id):
         db.close()
 
 # --- Live Gold Prices ---
+PRICE_FIELDS = (
+    "sell_24k", "sell_21k", "sell_18k", "sell_14k", "sell_pound",
+    "buy_24k", "buy_21k", "buy_18k", "buy_14k", "buy_pound",
+)
+
 @app.route("/api/prices", methods=["GET", "POST"])
 def gold_prices():
     db = get_db()
     try:
+        shop_id = current_shop_id()
         if request.method == "GET":
-            price = db.query(GoldPrice).order_by(GoldPrice.id.desc()).first()
+            price = get_latest_prices(db, shop_id)
             if not price:
                 return jsonify({"detail": "الأسعار غير مسجلة بعد"}), 404
             return jsonify({
@@ -513,9 +540,17 @@ def gold_prices():
 
         # POST update prices
         data = request.get_json(force=True, silent=True) or {}
-        price = db.query(GoldPrice).first()
+        price = (
+            db.query(GoldPrice)
+            .filter(GoldPrice.shop_id == shop_id)
+            .order_by(GoldPrice.id.desc())
+            .first()
+        )
         if not price:
-            price = GoldPrice()
+            base = get_latest_prices(db, shop_id)
+            price = GoldPrice(shop_id=shop_id)
+            for k in PRICE_FIELDS:
+                setattr(price, k, getattr(base, k, 0.0) if base else 0.0)
             db.add(price)
 
         price.sell_24k = float(data.get("sell_24k", price.sell_24k))
@@ -559,7 +594,7 @@ def invoices_handler():
             limit = request.args.get("limit", 500, type=int)
             inv_type = request.args.get("invoice_type")
             search = (request.args.get("q") or request.args.get("search") or "").strip()
-            q = db.query(Invoice).order_by(Invoice.id.desc())
+            q = db.query(Invoice).filter(Invoice.shop_id == current_shop_id()).order_by(Invoice.id.desc())
             if inv_type and inv_type != "all":
                 q = q.filter(Invoice.invoice_type == inv_type)
             if search:
@@ -680,7 +715,7 @@ def invoices_handler():
         discount = float(data.get("discount", 0.0))
         final_amount = max(0.0, total_items_price - discount)
 
-        shop_id = int(data.get("shop_id") or 1)
+        shop_id = current_shop_id()
         customer_name = data.get("customer_name", "عميل نقدي")
         customer_phone = data.get("customer_phone")
         customer_national_id = data.get("customer_national_id")
@@ -702,7 +737,7 @@ def invoices_handler():
             customer_name=customer_name,
             customer_national_id=customer_national_id,
             customer_phone=customer_phone,
-            created_by_user_id=data.get("created_by_user_id"),
+            created_by_user_id=g.user_id,
             total_gross_weight=round(total_gross, 3),
             total_net_weight=round(total_net, 3),
             equivalent_21k_weight=round(total_eq_21, 3),
@@ -769,10 +804,12 @@ PARTIAL_SALE_NOTE_RE = re.compile(r"مباع من رصيد #(\d+)")
 
 @app.route("/api/invoices/<int:invoice_id>", methods=["DELETE"])
 def delete_invoice(invoice_id):
+    if not is_admin():
+        return forbidden("حذف الفواتير لصاحب المحل فقط")
     db = get_db()
     try:
         inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-        if not inv:
+        if not inv or not owns(inv.shop_id):
             return jsonify({"detail": "الفاتورة غير موجودة"}), 404
 
         # حذف قطع الكسر التي دخلت المخزن من هذه الفاتورة
@@ -826,6 +863,8 @@ def delete_invoice(invoice_id):
 # --- Inventory Periodic Audit Report ---
 @app.route("/api/reports/audit", methods=["GET"])
 def periodic_audit_report():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         period = request.args.get("period", "day")
@@ -854,7 +893,10 @@ def periodic_audit_report():
             end = now
             title = "تقرير الجرد الدوري"
 
-        invoices = db.query(Invoice).filter(Invoice.created_at >= start, Invoice.created_at <= end).all()
+        invoices = db.query(Invoice).filter(
+            Invoice.shop_id == current_shop_id(),
+            Invoice.created_at >= start, Invoice.created_at <= end,
+        ).all()
 
         sales_count = 0
         buybacks_count = 0
@@ -926,7 +968,9 @@ def periodic_audit_report():
 # --- Jewelry Types (تصنيفات المخزن) ---
 def _resolve_type(db, shop_id, type_id, type_name):
     if type_id:
-        found = db.query(JewelryType).filter(JewelryType.id == int(type_id)).first()
+        found = db.query(JewelryType).filter(
+            JewelryType.id == int(type_id), JewelryType.shop_id == shop_id
+        ).first()
         if found:
             return found.id, found.name
     if type_name:
@@ -944,9 +988,11 @@ def _resolve_type(db, shop_id, type_id, type_name):
 
 @app.route("/api/jewelry-types", methods=["GET", "POST"])
 def jewelry_types():
+    if request.method == "POST" and not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         ensure_default_types(db, shop_id)
         db.commit()
 
@@ -989,10 +1035,12 @@ def jewelry_types():
 
 @app.route("/api/jewelry-types/<int:type_id>", methods=["DELETE"])
 def delete_jewelry_type(type_id):
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         found = db.query(JewelryType).filter(JewelryType.id == type_id).first()
-        if not found:
+        if not found or not owns(found.shop_id):
             return jsonify({"detail": "النوع غير موجود"}), 404
         name = found.name
         db.query(InventoryItem).filter(InventoryItem.type_id == type_id).update(
@@ -1046,7 +1094,7 @@ def inventory_handler():
     db = get_db()
     try:
         if request.method == "GET":
-            shop_id = request.args.get("shop_id", 1, type=int)
+            shop_id = current_shop_id()
             status = request.args.get("status", "in_stock")
             section = request.args.get("section")
             type_id = request.args.get("type_id", type=int)
@@ -1071,8 +1119,10 @@ def inventory_handler():
             items = query.order_by(InventoryItem.id.desc()).limit(limit).all()
             return jsonify([inventory_item_to_dict(i) for i in items])
 
+        if not is_admin():
+            return forbidden()
         data = request.get_json(force=True, silent=True) or {}
-        shop_id = int(data.get("shop_id") or 1)
+        shop_id = current_shop_id()
         raw_items = data.get("items") if isinstance(data.get("items"), list) else [data]
         created = []
         for raw in raw_items:
@@ -1091,10 +1141,12 @@ def inventory_handler():
 
 @app.route("/api/inventory/<int:item_id>", methods=["PUT", "DELETE"])
 def inventory_item_handler(item_id):
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
-        if not item:
+        if not item or not owns(item.shop_id):
             return jsonify({"detail": "القطعة غير موجودة"}), 404
 
         if request.method == "DELETE":
@@ -1146,9 +1198,11 @@ def inventory_item_handler(item_id):
 
 @app.route("/api/inventory/summary", methods=["GET"])
 def inventory_summary():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         result = {}
         for section in ("new", "scrap"):
             items = db.query(InventoryItem).filter(
@@ -1179,10 +1233,12 @@ def inventory_summary():
 @app.route("/api/inventory/reset", methods=["POST"])
 def reset_inventory():
     """تصفير رصيد المخزن والنقدية بالكامل (تصفير شامل)"""
+    if not is_admin():
+        return forbidden("تصفير المخزن لصاحب المحل فقط")
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
-        shop_id = int(data.get("shop_id") or 1)
+        shop_id = current_shop_id()
         scope = data.get("scope", "all")  # "in_stock" أو "all"
 
         # 1. تصفير قطع المخزن
@@ -1231,19 +1287,23 @@ def reset_inventory():
 # --- Capital (رأس المال) & Cash ---
 @app.route("/api/capital", methods=["GET"])
 def capital():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         return jsonify(capital_summary(db, shop_id))
     finally:
         db.close()
 
 @app.route("/api/shop/opening-cash", methods=["PUT"])
 def update_opening_cash():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
-        shop_id = int(data.get("shop_id") or 1)
+        shop_id = current_shop_id()
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
         if not shop:
             return jsonify({"detail": "المحل غير موجود"}), 404
@@ -1256,9 +1316,11 @@ def update_opening_cash():
 
 @app.route("/api/cash/transactions", methods=["GET", "POST"])
 def cash_transactions():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         if request.method == "GET":
             rows = (
                 db.query(CashTransaction)
@@ -1284,17 +1346,17 @@ def cash_transactions():
         if direction not in ("in", "out"):
             direction = "in"
         tx = CashTransaction(
-            shop_id=int(data.get("shop_id") or 1),
+            shop_id=shop_id,
             direction=direction,
             amount=amount,
             category=data.get("category", "adjustment"),
             note=data.get("note"),
-            created_by_user_id=data.get("created_by_user_id"),
+            created_by_user_id=g.user_id,
         )
         db.add(tx)
         db.commit()
         return jsonify({"message": "تم تسجيل الحركة النقدية",
-                        "cash_balance": cash_balance(db, int(data.get("shop_id") or 1))})
+                        "cash_balance": cash_balance(db, shop_id)})
     finally:
         db.close()
 
@@ -1311,7 +1373,7 @@ def live_gold_prices():
 def customers_handler():
     db = get_db()
     try:
-        shop_id = request.args.get("shop_id", 1, type=int)
+        shop_id = current_shop_id()
         if request.method == "GET":
             search = (request.args.get("q") or "").strip()
             query = db.query(Customer).filter(Customer.shop_id == shop_id)
@@ -1344,7 +1406,7 @@ def pay_invoice(invoice_id):
     db = get_db()
     try:
         invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-        if not invoice:
+        if not invoice or not owns(invoice.shop_id):
             return jsonify({"detail": "الفاتورة غير موجودة"}), 404
         data = request.get_json(force=True, silent=True) or {}
         amount = float(data.get("amount", 0) or 0)
@@ -1411,10 +1473,11 @@ def trust_item_to_dict(t):
 
 @app.route("/api/trusts", methods=["GET"])
 def get_trusts():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        raw_shop_id = request.args.get("shop_id") or request.headers.get("X-Shop-Id")
-        shop_id = int(raw_shop_id) if raw_shop_id else 1
+        shop_id = current_shop_id()
         trust_type = request.args.get("trust_type")  # 'gold' | 'cash' | None
         status = request.args.get("status")  # 'held' | 'all' | None
 
@@ -1430,11 +1493,12 @@ def get_trusts():
 
 @app.route("/api/trusts", methods=["POST"])
 def create_trust():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         data = request.get_json(force=True, silent=True) or {}
-        raw_shop_id = data.get("shop_id") or request.args.get("shop_id") or request.headers.get("X-Shop-Id")
-        shop_id = int(raw_shop_id) if raw_shop_id else 1
+        shop_id = current_shop_id()
 
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -1466,10 +1530,12 @@ def create_trust():
 
 @app.route("/api/trusts/<int:item_id>/status", methods=["PUT"])
 def update_trust_status(item_id):
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         item = db.query(TrustItem).filter(TrustItem.id == item_id).first()
-        if not item:
+        if not item or not owns(item.shop_id):
             return jsonify({"detail": "عنصر الأمانة غير موجود"}), 404
 
         data = request.get_json(force=True, silent=True) or {}
@@ -1491,10 +1557,12 @@ def update_trust_status(item_id):
 
 @app.route("/api/trusts/<int:item_id>", methods=["DELETE"])
 def delete_trust(item_id):
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
         item = db.query(TrustItem).filter(TrustItem.id == item_id).first()
-        if not item:
+        if not item or not owns(item.shop_id):
             return jsonify({"detail": "عنصر الأمانة غير موجود"}), 404
         db.delete(item)
         db.commit()
@@ -1504,10 +1572,11 @@ def delete_trust(item_id):
 
 @app.route("/api/trusts/summary", methods=["GET"])
 def get_trusts_summary():
+    if not is_admin():
+        return forbidden()
     db = get_db()
     try:
-        raw_shop_id = request.args.get("shop_id") or request.headers.get("X-Shop-Id")
-        shop_id = int(raw_shop_id) if raw_shop_id else 1
+        shop_id = current_shop_id()
 
         active_gold = db.query(TrustItem).filter(
             TrustItem.shop_id == shop_id,

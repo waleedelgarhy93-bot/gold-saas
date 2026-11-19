@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { GoldPrices, Invoice, VisionAnalysisResult, User, ShopInfo } from './types';
-import { fetchGoldPrices, defaultPrices, fetchShopInfo } from './api';
+import { fetchGoldPrices, defaultPrices, fetchShopInfo, getAuthToken } from './api';
 import { Navbar, type AppTab } from './components/Navbar';
 import { POSScreen } from './components/POSScreen';
 import { InventoryView } from './components/InventoryView';
@@ -21,7 +21,7 @@ export const App: React.FC = () => {
   // Current authenticated user (null = show login)
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('gold_user');
-    return saved ? JSON.parse(saved) : null;
+    return saved ? (JSON.parse(saved) as User) : null;
   });
 
   // View mode when not logged in: 'login' | 'landing' (defaults to 'login' as primary)
@@ -190,6 +190,8 @@ export const App: React.FC = () => {
               if (currentUser && currentUser.role === 'shop_admin') {
                 const updatedUser: User = {
                   ...currentUser,
+                  // لو كلمة المرور اتغيرت في نفس الجلسة، التوكن الجديد محفوظ في localStorage
+                  token: getAuthToken() || currentUser.token,
                   name: `${updated.owner_name} (صاحب المحل)`,
                   shop_name: updated.name
                 };

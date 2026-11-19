@@ -7,6 +7,8 @@ export interface User {
   role: Role;
   shop_id?: number | null;
   shop_name?: string;
+  token?: string;
+  must_change_password?: boolean;
 }
 
 export interface ShopInfo {

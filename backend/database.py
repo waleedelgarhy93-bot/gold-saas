@@ -323,8 +323,12 @@ def _seed_defaults():
             shop.address = "شارع الصاغة، سمالوط، المنيا"
             db.commit()
 
-        # Always ensure standard system users exist with correct credentials
-        for u_data in [
+        from werkzeug.security import generate_password_hash
+
+        # الحسابات الافتراضية تتعمل مرة واحدة بس في تشغيل جديد خالص (قاعدة فاضية).
+        # كلمة المرور الافتراضية ضعيفة، فالنظام هيجبر صاحبها يغيرها أول دخول.
+        # مش بنعيد إنشاء أو تفعيل أي حساب تاني، عشان الحساب اللي اتحذف ما يرجعش لوحده.
+        default_users = [] if db.query(User).first() else [
             {
                 "username": "superadmin",
                 "password": "123",
@@ -357,25 +361,27 @@ def _seed_defaults():
                 "pin_code": "2222",
                 "shop_id": shop.id if shop else 1
             }
-        ]:
-            existing_u = db.query(User).filter(User.username == u_data["username"]).first()
-            if not existing_u:
-                new_u = User(
-                    username=u_data["username"],
-                    password=u_data["password"],
-                    name=u_data["name"],
-                    role=u_data["role"],
-                    pin_code=u_data["pin_code"],
-                    shop_id=u_data["shop_id"],
-                    is_active=True
-                )
-                db.add(new_u)
-            else:
-                if not existing_u.password:
-                    existing_u.password = u_data["password"]
-                existing_u.is_active = True
-                if u_data["username"] in ["taha", "admin"] and "وليد" in (existing_u.name or ""):
-                    existing_u.name = u_data["name"]
+        ]
+        for u_data in default_users:
+            db.add(User(
+                username=u_data["username"],
+                password=generate_password_hash(u_data["password"]),
+                name=u_data["name"],
+                role=u_data["role"],
+                pin_code=u_data["pin_code"],
+                shop_id=u_data["shop_id"],
+                is_active=True
+            ))
+
+        # مخرج طوارئ: لو SUPERADMIN_RESET_PASSWORD متحدد في إعدادات السيرفر
+        # بنضبط بيه كلمة مرور السوبر أدمن عند التشغيل (احذفه بعد ما تدخل).
+        reset_pw = (os.environ.get("SUPERADMIN_RESET_PASSWORD") or "").strip()
+        if reset_pw:
+            sa = db.query(User).filter(User.role == "super_admin").first()
+            if sa:
+                sa.password = generate_password_hash(reset_pw)
+                sa.is_active = True
+                print("[db] super admin password was reset from SUPERADMIN_RESET_PASSWORD")
         db.commit()
 
         price = db.query(GoldPrice).first()

@@ -56,8 +56,8 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({ currentUser,
     setPassError(null);
     setPassSuccess(false);
 
-    if (newPassword.length < 3) {
-      setPassError('كلمة المرور يجب أن تكون 3 أحرف/أرقام على الأقل');
+    if (newPassword.length < 6) {
+      setPassError('كلمة المرور يجب أن تكون 6 أحرف/أرقام على الأقل');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -66,9 +66,13 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({ currentUser,
     }
 
     setSavingPass(true);
-    const ok = await changeUserPasswordAPI(currentUser.id, newPassword);
+    const result = await changeUserPasswordAPI(currentUser.id, newPassword);
     setSavingPass(false);
-    if (ok) {
+    if (!result.ok) {
+      setPassError(result.error || 'تعذر تغيير كلمة المرور');
+      return;
+    }
+    {
       setPassSuccess(true);
       setNewPassword('');
       setConfirmPassword('');
