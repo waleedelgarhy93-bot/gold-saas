@@ -9,6 +9,7 @@ import { downloadInvoicePDF, sendInvoiceViaWhatsApp } from '../utils/pdfGenerato
 import { VoicePOSAssistantModal, type VoiceExtractedData } from './VoicePOSAssistantModal';
 import { FieldVoiceButton } from './FieldVoiceButton';
 import type { FieldVoiceType } from '../utils/arabicVoiceParser';
+import { normalizeNumber } from '../utils/numbers';
 
 interface POSScreenProps {
   prices: GoldPrices;
@@ -216,9 +217,17 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   };
 
   const handleAddItem = () => {
-    const gross = parseFloat(grossWeight) || 0;
-    const stones = parseFloat(stonesWeight) || 0;
+    const gross = parseFloat(normalizeNumber(grossWeight)) || 0;
+    const stones = parseFloat(normalizeNumber(stonesWeight)) || 0;
     const net = Math.max(0, parseFloat((gross - stones).toFixed(3)));
+    if (gross <= 0) {
+      alert('اكتب وزن القطعة الأول (مثال: 12.5)');
+      return;
+    }
+    if (net <= 0) {
+      alert('وزن الفصوص أكبر من أو يساوي الوزن القائم، راجع الأوزان');
+      return;
+    }
     const pricePerGram = effectiveUnitPrice;
     const work = invoiceType === 'sale' ? (parseFloat(workmanship) || 0) : 0;
     const vat = invoiceType === 'sale' ? (parseFloat(stampVat) || 0) : 0;
@@ -391,7 +400,12 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       console.warn('Error saving before WhatsApp:', e);
     }
 
-    // 4. Fallback invoice object so WhatsApp NEVER fails
+    // الفاتورة ما اتحفظتش (handleSaveInvoice عرض رسالة الخطأ): ما نبعتش فاتورة مش مسجلة
+    if (!savedInvoice) {
+      if (waWindow) waWindow.close();
+      return;
+    }
+
     const targetInvoice: Invoice = savedInvoice || {
       invoice_number: `INV-${Date.now().toString().slice(-4)}`,
       invoice_type: invoiceType,
@@ -810,10 +824,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                 </label>
                 <div className="relative">
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     step="1"
                     value={priceInput}
-                    onChange={(e) => setPriceInput(e.target.value)}
+                    onChange={(e) => setPriceInput(normalizeNumber(e.target.value))}
                     onFocus={() => setActiveVoiceField({ id: 'priceInput', label: 'سعر الجرام', type: 'money', setter: setPriceInput })}
                     placeholder={defaultUnitPrice.toFixed(0)}
                     className="w-full bg-slate-950 border border-amber-500/40 rounded-xl pl-9 pr-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
@@ -839,10 +854,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                 <label className="block text-xs text-amber-300 font-medium mb-1">الوزن القائم (جرام)</label>
                 <div className="relative">
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     step="0.01"
                     value={grossWeight}
-                    onChange={(e) => setGrossWeight(e.target.value)}
+                    onChange={(e) => setGrossWeight(normalizeNumber(e.target.value))}
                     onFocus={() => setActiveVoiceField({ id: 'grossWeight', label: 'الوزن القائم', type: 'weight', setter: setGrossWeight })}
                     placeholder="0.00"
                     className="w-full bg-slate-900 border border-amber-500/40 rounded-xl pl-9 pr-3 py-2 text-base font-bold font-mono text-amber-300 focus:outline-none focus:border-amber-400"
@@ -860,10 +876,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                 <label className="block text-xs text-slate-400 mb-1">خصم فصوص/شوائب (g)</label>
                 <div className="relative">
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     step="0.01"
                     value={stonesWeight}
-                    onChange={(e) => setStonesWeight(e.target.value)}
+                    onChange={(e) => setStonesWeight(normalizeNumber(e.target.value))}
                     onFocus={() => setActiveVoiceField({ id: 'stonesWeight', label: 'وزن الفصوص', type: 'weight', setter: setStonesWeight })}
                     placeholder="0.00"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
@@ -883,10 +900,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                     <label className="block text-xs text-slate-400 mb-1">المصنعية للجرام (ج.م)</label>
                     <div className="relative">
                       <input
-                        type="number"
+                        type="text"
+                    inputMode="decimal"
                         step="1"
                         value={workmanship}
-                        onChange={(e) => setWorkmanship(e.target.value)}
+                        onChange={(e) => setWorkmanship(normalizeNumber(e.target.value))}
                         onFocus={() => setActiveVoiceField({ id: 'workmanship', label: 'المصنعية', type: 'money', setter: setWorkmanship })}
                         placeholder="120"
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
@@ -904,10 +922,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                     <label className="block text-xs text-slate-400 mb-1">الدمغة والقيمة المضافة (ج.م)</label>
                     <div className="relative">
                       <input
-                        type="number"
+                        type="text"
+                    inputMode="decimal"
                         step="1"
                         value={stampVat}
-                        onChange={(e) => setStampVat(e.target.value)}
+                        onChange={(e) => setStampVat(normalizeNumber(e.target.value))}
                         onFocus={() => setActiveVoiceField({ id: 'stampVat', label: 'الدمغة والضريبة', type: 'money', setter: setStampVat })}
                         placeholder="25"
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-sm font-mono text-slate-200 focus:outline-none focus:border-amber-500"
@@ -1044,9 +1063,10 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-400">الخصم / التقريب:</span>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={discount || ''}
-                  onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                  onChange={(e) => setDiscount(parseFloat(normalizeNumber(e.target.value)) || 0)}
                   placeholder="0.00"
                   className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs font-mono text-right text-rose-300 focus:outline-none focus:border-rose-400"
                 />
@@ -1089,10 +1109,11 @@ export const POSScreen: React.FC<POSScreenProps> = ({
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs text-slate-400">المسدد</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="0.01"
                   value={paidInput}
-                  onChange={(e) => setPaidInput(e.target.value)}
+                  onChange={(e) => setPaidInput(normalizeNumber(e.target.value))}
                   placeholder={finalTotal.toFixed(2)}
                   className="w-32 bg-slate-900 border border-emerald-500/40 rounded-lg px-2 py-1.5 text-xs font-mono text-right text-emerald-300 focus:outline-none focus:border-emerald-400"
                 />

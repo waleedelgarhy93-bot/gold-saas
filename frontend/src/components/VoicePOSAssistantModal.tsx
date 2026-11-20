@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, X, Volume2 } from 'lucide-react';
 import type { GoldPrices } from '../types';
+import { normalizeNumber } from '../utils/numbers';
 
 export interface VoiceExtractedData {
   invoice_type: 'sale' | 'buyback';
@@ -581,19 +582,21 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
               <div>
                 <label className="text-[11px] text-slate-400 mb-1 block">الوزن (جرام)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="0.001"
                   value={editableWeight}
-                  onChange={(e) => setEditableWeight(e.target.value)}
+                  onChange={(e) => setEditableWeight(normalizeNumber(e.target.value))}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-amber-300 font-bold focus:outline-none focus:border-amber-500 text-center font-mono"
                 />
               </div>
               <div>
                 <label className="text-[11px] text-slate-400 mb-1 block">المصنعية (ج)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={editableWorkmanship}
-                  onChange={(e) => setEditableWorkmanship(e.target.value)}
+                  onChange={(e) => setEditableWorkmanship(normalizeNumber(e.target.value))}
                   disabled={editableType === 'buyback'}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 text-center font-mono disabled:opacity-40"
                 />

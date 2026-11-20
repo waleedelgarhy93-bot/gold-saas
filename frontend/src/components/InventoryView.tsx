@@ -12,6 +12,7 @@ import {
   Package, Plus, Trash2, Pencil, Wallet, Scale, X, Save,
   Search, Layers, ArrowDownLeft, ArrowUpRight, Receipt, AlertCircle, RotateCcw,
 } from 'lucide-react';
+import { normalizeNumber } from '../utils/numbers';
 
 interface InventoryViewProps {
   role: Role;
@@ -426,9 +427,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
               </p>
               <div className="flex items-center gap-2">
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={openingCashInput}
-                  onChange={(e) => setOpeningCashInput(e.target.value)}
+                  onChange={(e) => setOpeningCashInput(normalizeNumber(e.target.value))}
                   className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
                 />
                 <button
@@ -477,9 +479,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
                 </button>
               </div>
               <input
-                type="number"
+                type="text"
+                    inputMode="decimal"
                 value={txAmount}
-                onChange={(e) => setTxAmount(e.target.value)}
+                onChange={(e) => setTxAmount(normalizeNumber(e.target.value))}
                 placeholder="المبلغ بالجنيه"
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono text-slate-100 focus:outline-none focus:border-amber-500"
               />
@@ -716,10 +719,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
               <div>
                 <label className="block text-slate-400 mb-1">الوزن القائم (g)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="0.01"
                   value={form.gross_weight}
-                  onChange={(e) => setForm({ ...form, gross_weight: e.target.value })}
+                  onChange={(e) => setForm({ ...form, gross_weight: normalizeNumber(e.target.value) })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-amber-300 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -727,10 +731,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
               <div>
                 <label className="block text-slate-400 mb-1">خصم فصوص (g)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="0.01"
                   value={form.stones_weight}
-                  onChange={(e) => setForm({ ...form, stones_weight: e.target.value })}
+                  onChange={(e) => setForm({ ...form, stones_weight: normalizeNumber(e.target.value) })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-200 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -738,10 +743,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
               <div>
                 <label className="block text-slate-400 mb-1">تكلفة الجرام</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="0.01"
                   value={form.purchase_price_per_gram}
-                  onChange={(e) => setForm({ ...form, purchase_price_per_gram: e.target.value })}
+                  onChange={(e) => setForm({ ...form, purchase_price_per_gram: normalizeNumber(e.target.value) })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-200 focus:outline-none focus:border-amber-500"
                 />
               </div>
@@ -749,10 +755,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ role }) => {
               <div>
                 <label className="block text-slate-400 mb-1">مصنعية الجرام (اختياري)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   step="1"
                   value={form.workmanship_per_gram}
-                  onChange={(e) => setForm({ ...form, workmanship_per_gram: e.target.value })}
+                  onChange={(e) => setForm({ ...form, workmanship_per_gram: normalizeNumber(e.target.value) })}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 font-mono text-slate-200 focus:outline-none focus:border-amber-500"
                 />
               </div>

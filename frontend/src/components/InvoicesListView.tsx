@@ -7,6 +7,7 @@ import {
   Trash2, Eye, Calendar, Clock, RefreshCw, CheckCircle2, AlertCircle,
   Coins, FileDown, Send
 } from 'lucide-react';
+import { normalizeNumber } from '../utils/numbers';
 
 interface InvoicesListViewProps {
   onSelectInvoiceForPrint?: (invoice: Invoice) => void;
@@ -828,10 +829,11 @@ export const InvoicesListView: React.FC<InvoicesListViewProps> = ({ onSelectInvo
             <div>
               <label className="block text-xs text-slate-400 mb-1">المبلغ المحصّل الآن (ج.م):</label>
               <input
-                type="number"
+                type="text"
+                    inputMode="decimal"
                 step="0.01"
                 value={payAmount}
-                onChange={(e) => setPayAmount(e.target.value)}
+                onChange={(e) => setPayAmount(normalizeNumber(e.target.value))}
                 className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl px-3 py-2.5 text-base font-mono font-bold text-emerald-300 text-center focus:outline-none focus:border-emerald-400"
               />
             </div>

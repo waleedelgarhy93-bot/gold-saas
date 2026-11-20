@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { GoldPrices, LivePrices } from '../types';
 import { saveGoldPrices, fetchLivePrices } from '../api';
 import { X, TrendingUp, Save, RefreshCw } from 'lucide-react';
+import { normalizeNumber } from '../utils/numbers';
 
 interface PriceModalProps {
   isOpen: boolean;
@@ -169,36 +170,40 @@ export const PriceModal: React.FC<PriceModalProps> = ({
               <div>
                 <label className="block text-slate-400 mb-1">عيار 24</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.sell_24k}
-                  onChange={(e) => handleChange('sell_24k', e.target.value)}
+                  onChange={(e) => handleChange('sell_24k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">عيار 21 (الرئيسي)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.sell_21k}
-                  onChange={(e) => handleChange('sell_21k', e.target.value)}
+                  onChange={(e) => handleChange('sell_21k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-amber-500/50 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">عيار 18</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.sell_18k}
-                  onChange={(e) => handleChange('sell_18k', e.target.value)}
+                  onChange={(e) => handleChange('sell_18k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">الجنيه الذهب (8g)</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.sell_pound}
-                  onChange={(e) => handleChange('sell_pound', e.target.value)}
+                  onChange={(e) => handleChange('sell_pound', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
               </div>
@@ -214,36 +219,40 @@ export const PriceModal: React.FC<PriceModalProps> = ({
               <div>
                 <label className="block text-slate-400 mb-1">شراء عيار 24</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.buy_24k}
-                  onChange={(e) => handleChange('buy_24k', e.target.value)}
+                  onChange={(e) => handleChange('buy_24k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">شراء عيار 21</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.buy_21k}
-                  onChange={(e) => handleChange('buy_21k', e.target.value)}
+                  onChange={(e) => handleChange('buy_21k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">شراء عيار 18</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.buy_18k}
-                  onChange={(e) => handleChange('buy_18k', e.target.value)}
+                  onChange={(e) => handleChange('buy_18k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
               </div>
               <div>
                 <label className="block text-slate-400 mb-1">شراء الجنيه الذهب</label>
                 <input
-                  type="number"
+                  type="text"
+                    inputMode="decimal"
                   value={prices.buy_pound}
-                  onChange={(e) => handleChange('buy_pound', e.target.value)}
+                  onChange={(e) => handleChange('buy_pound', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
               </div>

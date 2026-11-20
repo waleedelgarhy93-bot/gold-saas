@@ -7,6 +7,7 @@ import {
   ShieldCheck, Package, Wallet, Plus, Search, Printer, Send,
   CheckCircle, ArrowUpRight, Trash2, X, Clock, Calendar, User
 } from 'lucide-react';
+import { normalizeNumber } from '../utils/numbers';
 
 interface TrustsViewProps {
   shopInfo: ShopInfo | null;
@@ -729,10 +730,11 @@ export const TrustsView: React.FC<TrustsViewProps> = ({ shopInfo, isAdmin }) => 
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">الوزن القائم (g)</label>
                       <input
-                        type="number"
+                        type="text"
+                    inputMode="decimal"
                         step="0.001"
                         value={grossWeight}
-                        onChange={(e) => setGrossWeight(e.target.value)}
+                        onChange={(e) => setGrossWeight(normalizeNumber(e.target.value))}
                         placeholder="0.000"
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-amber-500"
                       />
@@ -740,11 +742,12 @@ export const TrustsView: React.FC<TrustsViewProps> = ({ shopInfo, isAdmin }) => 
                     <div>
                       <label className="block text-xs text-amber-300 mb-1">الوزن الصافي (g) *</label>
                       <input
-                        type="number"
+                        type="text"
+                    inputMode="decimal"
                         step="0.001"
                         required
                         value={netWeight}
-                        onChange={(e) => setNetWeight(e.target.value)}
+                        onChange={(e) => setNetWeight(normalizeNumber(e.target.value))}
                         placeholder="0.000"
                         className="w-full bg-slate-900 border border-amber-500/50 rounded-xl px-3 py-2 text-xs font-mono font-bold text-amber-300 focus:outline-none focus:border-amber-400"
                       />
@@ -761,11 +764,12 @@ export const TrustsView: React.FC<TrustsViewProps> = ({ shopInfo, isAdmin }) => 
                     <div>
                       <label className="block text-xs text-emerald-300 mb-1">المبلغ المودع (ج.م) *</label>
                       <input
-                        type="number"
+                        type="text"
+                    inputMode="decimal"
                         step="1"
                         required
                         value={cashAmount}
-                        onChange={(e) => setCashAmount(e.target.value)}
+                        onChange={(e) => setCashAmount(normalizeNumber(e.target.value))}
                         placeholder="مثال: 100000"
                         className="w-full bg-slate-900 border border-emerald-500/50 rounded-xl px-3 py-2 text-base font-mono font-black text-emerald-300 focus:outline-none focus:border-emerald-400"
                       />
