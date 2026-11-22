@@ -18,6 +18,8 @@ export const PriceModal: React.FC<PriceModalProps> = ({
   onPricesUpdated,
 }) => {
   const [prices, setPrices] = useState<GoldPrices>({ ...currentPrices });
+  // النص اللي المستخدم بيكتبه فعلاً (عشان يقدر يكتب "3750." أو يمسح الخانة)
+  const [drafts, setDrafts] = useState<Partial<Record<keyof GoldPrices, string>>>({});
   const [saving, setSaving] = useState(false);
   const [live, setLive] = useState<LivePrices | null>(null);
   const [liveLoading, setLiveLoading] = useState(false);
@@ -25,6 +27,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
 
   useEffect(() => {
     setPrices({ ...currentPrices });
+    setDrafts({});
   }, [currentPrices]);
 
   const loadLive = async () => {
@@ -50,6 +53,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
 
   const handleChange = (field: keyof GoldPrices, val: string) => {
     const num = parseFloat(val) || 0;
+    setDrafts({ ...drafts, [field]: val });
     setPrices({ ...prices, [field]: num });
   };
 
@@ -58,6 +62,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
 
   const applyLiveSell = () => {
     if (!market) return;
+    setDrafts({});
     setPrices({
       ...prices,
       sell_24k: marketFor(24),
@@ -70,6 +75,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
 
   const applyLiveBuy = () => {
     if (!market) return;
+    setDrafts({});
     setPrices({
       ...prices,
       buy_24k: marketFor(24),
@@ -81,6 +87,12 @@ export const PriceModal: React.FC<PriceModalProps> = ({
   };
 
   const handleSave = async () => {
+    const missing = (['sell_24k', 'sell_21k', 'sell_18k', 'buy_24k', 'buy_21k', 'buy_18k'] as (keyof GoldPrices)[])
+      .filter((k) => !(Number(prices[k]) > 0));
+    if (missing.length > 0) {
+      alert('فيه سعر فاضي أو صفر. اكتب كل أسعار البيع والشراء (24 و21 و18) قبل الحفظ');
+      return;
+    }
     setSaving(true);
     const updated = await saveGoldPrices(prices);
     setSaving(false);
@@ -172,7 +184,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.sell_24k}
+                  value={drafts.sell_24k ?? prices.sell_24k}
                   onChange={(e) => handleChange('sell_24k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
@@ -182,7 +194,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.sell_21k}
+                  value={drafts.sell_21k ?? prices.sell_21k}
                   onChange={(e) => handleChange('sell_21k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-amber-500/50 rounded-xl px-3 py-2 text-amber-400 font-mono font-bold"
                 />
@@ -192,7 +204,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.sell_18k}
+                  value={drafts.sell_18k ?? prices.sell_18k}
                   onChange={(e) => handleChange('sell_18k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
@@ -202,7 +214,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.sell_pound}
+                  value={drafts.sell_pound ?? prices.sell_pound}
                   onChange={(e) => handleChange('sell_pound', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-mono font-bold"
                 />
@@ -221,7 +233,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.buy_24k}
+                  value={drafts.buy_24k ?? prices.buy_24k}
                   onChange={(e) => handleChange('buy_24k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
@@ -231,7 +243,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.buy_21k}
+                  value={drafts.buy_21k ?? prices.buy_21k}
                   onChange={(e) => handleChange('buy_21k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
@@ -241,7 +253,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.buy_18k}
+                  value={drafts.buy_18k ?? prices.buy_18k}
                   onChange={(e) => handleChange('buy_18k', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
@@ -251,7 +263,7 @@ export const PriceModal: React.FC<PriceModalProps> = ({
                 <input
                   type="text"
                     inputMode="decimal"
-                  value={prices.buy_pound}
+                  value={drafts.buy_pound ?? prices.buy_pound}
                   onChange={(e) => handleChange('buy_pound', normalizeNumber(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />

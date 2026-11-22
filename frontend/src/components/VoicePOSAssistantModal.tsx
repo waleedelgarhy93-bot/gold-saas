@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, X, Volume2 } from 'lucide-react';
 import type { GoldPrices } from '../types';
 import { normalizeNumber } from '../utils/numbers';
+import { parseSpokenWeight } from '../utils/arabicVoiceParser';
 
 export interface VoiceExtractedData {
   invoice_type: 'sale' | 'buyback';
@@ -25,7 +26,11 @@ interface VoicePOSAssistantModalProps {
 
 // Convert eastern Arabic numerals (٠-٩) to standard (0-9)
 export function normalizeArabicDigits(str: string): string {
-  return str.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
+  return str
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    // "12٫5" أو "12,5" -> "12.5" عشان الوزن ما يتقريش 12 بس
+    .replace(/(\d)\s*[٫,،]\s*(\d)/g, '$1.$2');
 }
 
 // Intelligent extractor for Egyptian Gold Shop speech patterns
@@ -132,7 +137,8 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
   }
 
   // 7. Weight (Gross & Net)
-  let gross_weight = 10.0;
+  // 0 = الوزن ما اتفهمش. ما نحطش وزن افتراضي (كان 10 جرام) عشان ما يدخلش وزن غلط بصمت
+  let gross_weight = 0;
   // Check common Arabic fractions like "خمسة جرام ونص" or "4 ونص"
   const fractionMatch = text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:جرام|جم)?\s*و\s*(نص|ربع|تلت|تلات تربع)/i);
   if (fractionMatch) {
@@ -145,6 +151,13 @@ export function parseEgyptianGoldSpeech(rawText: string): VoiceExtractedData {
                    text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:جرام|جم)/i);
     if (wMatch && wMatch[1]) {
       gross_weight = parseFloat(parseFloat(wMatch[1]).toFixed(3));
+    } else {
+      // الوزن متقال بالكلام: "وزنها اتناشر جرام ونص"
+      const spokenAfter = text.match(/(?:وزن|وزنه|وزنها)\s+(.+?)(?:\s+(?:مصنعية|المصنعية|بمصنعية|عيار|رقم|تليفون)|$)/i);
+      if (spokenAfter) {
+        const parsed = parseFloat(parseSpokenWeight(spokenAfter[1]));
+        if (parsed > 0) gross_weight = parsed;
+      }
     }
   }
 
@@ -335,7 +348,7 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
       setEditableItem(data.item_name);
     }
     setEditableKarat(data.karat);
-    setEditableWeight(String(data.gross_weight));
+    setEditableWeight(data.gross_weight > 0 ? String(data.gross_weight) : '');
     setEditableWorkmanship(String(data.workmanship_per_gram));
   };
 
@@ -368,13 +381,19 @@ export const VoicePOSAssistantModal: React.FC<VoicePOSAssistantModalProps> = ({
     }
     setIsListening(false);
 
+    const weight = parseFloat(normalizeNumber(editableWeight));
+    if (!(weight > 0)) {
+      alert('الوزن ما اتفهمش. اكتب الوزن في خانة الوزن (مثال: 12.5) وبعدين اضغط تطبيق');
+      return;
+    }
+
     const finalData: VoiceExtractedData = {
       invoice_type: editableType,
       customer_name: editableName.trim() || 'عميل نقدي',
       customer_phone: editablePhone.trim() || undefined,
       item_name: editableItem.trim() || 'خاتم عيار 21',
       karat: editableKarat,
-      gross_weight: parseFloat(editableWeight) || 1.0,
+      gross_weight: weight,
       stones_weight: 0,
       workmanship_per_gram: parseFloat(editableWorkmanship) || 0,
     };

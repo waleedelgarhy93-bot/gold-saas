@@ -127,7 +127,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       setCustomerNationalId(data.customer_national_id);
     }
 
-    const gross = data.gross_weight || 10.0;
+    const gross = data.gross_weight || 0;
     const stones = data.stones_weight || 0.0;
     const net = Math.max(0, parseFloat((gross - stones).toFixed(3)));
     const karatVal = data.karat || 21;
@@ -140,9 +140,14 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       setItemName(data.item_name);
     }
     setKarat(karatVal);
-    setGrossWeight(String(gross));
+    setGrossWeight(gross > 0 ? String(gross) : '');
     setStonesWeight(String(stones));
     setWorkmanship(String(work));
+
+    if (!(gross > 0) || !(gross - stones > 0)) {
+      alert('الوزن ما اتفهمش من الصوت. اكتب الوزن في خانة الوزن واضغط "إضافة الصنف"');
+      return;
+    }
 
     // Calculate item and add directly to items array!
     const rawCost = net * pricePerGram;
@@ -229,6 +234,10 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       return;
     }
     const pricePerGram = effectiveUnitPrice;
+    if (!(pricePerGram > 0)) {
+      alert('سعر الجرام صفر. اكتب السعر أو حدّث الأسعار من "تعديل الأسعار"');
+      return;
+    }
     const work = invoiceType === 'sale' ? (parseFloat(workmanship) || 0) : 0;
     const vat = invoiceType === 'sale' ? (parseFloat(stampVat) || 0) : 0;
 

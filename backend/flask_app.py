@@ -655,6 +655,26 @@ def invoices_handler():
             return jsonify({"detail": "يجب إضافة صنف واحد على الأقل في الفاتورة"}), 400
 
         invoice_type = data.get("invoice_type", "sale")
+
+        # تحقق صريح قبل الحفظ: ما نسجلش فاتورة بوزن أو سعر صفر/غلط بصمت
+        try:
+            for idx, item in enumerate(items_in, start=1):
+                label = (item.get("item_name") or f"الصنف رقم {idx}").strip()
+                for key in ("gross_weight", "stones_weight", "price_per_gram",
+                            "workmanship_per_gram", "stamp_vat_per_gram"):
+                    item[key] = _num(item.get(key))
+                if item["gross_weight"] <= 0:
+                    return jsonify({"detail": f"وزن «{label}» صفر أو مش مكتوب. اكتب الوزن وحاول تاني"}), 400
+                if item["gross_weight"] - item["stones_weight"] <= 0:
+                    return jsonify({"detail": f"وزن الفصوص في «{label}» أكبر من أو يساوي الوزن القائم"}), 400
+                if item["price_per_gram"] <= 0:
+                    return jsonify({"detail": f"سعر الجرام في «{label}» صفر. راجع الأسعار وحاول تاني"}), 400
+            data["discount"] = _num(data.get("discount"))
+            if data.get("paid_amount") is not None:
+                data["paid_amount"] = _num(data.get("paid_amount"))
+        except ValueError:
+            return jsonify({"detail": "فيه رقم مكتوب غلط في الفاتورة (وزن أو سعر). راجع الأرقام"}), 400
+
         now = datetime.datetime.now()
         prefix = "INV-S" if invoice_type == "sale" else "INV-B"
         code = f"{prefix}-{now.strftime('%y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
@@ -801,6 +821,20 @@ def invoices_handler():
         db.close()
 
 PARTIAL_SALE_NOTE_RE = re.compile(r"مباع من رصيد #(\d+)")
+
+_AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫،,", "01234567890123456789...")
+
+def _num(value):
+    """يحوّل رقم (حتى لو مكتوب بأرقام عربية أو فاصلة) لـ float. الفاضي = 0. الغلط = ValueError"""
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (int, float)):
+        result = float(value)
+    else:
+        result = float(str(value).strip().translate(_AR_DIGITS))
+    if result != result or result in (float("inf"), float("-inf")):  # NaN / Infinity
+        raise ValueError("not a finite number")
+    return result
 
 @app.route("/api/invoices/<int:invoice_id>", methods=["DELETE"])
 def delete_invoice(invoice_id):
