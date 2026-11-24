@@ -716,6 +716,28 @@ def invoices_handler():
         except ValueError:
             return jsonify({"detail": "فيه رقم مكتوب غلط في الفاتورة (وزن أو سعر). راجع الأرقام"}), 400
 
+        # فاتورة كانت متخزنة على الجهاز بس (النسخة القديمة لما السيرفر رفضها) وبتترفع دلوقتي:
+        # نحتفظ بتاريخها الأصلي، ونمنع رفعها مرتين.
+        original_created_at = None
+        offline_ref = re.sub(r"[^0-9A-Za-z_-]", "", str(data.get("offline_ref") or ""))[:40]
+        if offline_ref:
+            marker = f"[offline:{offline_ref}]"
+            existing = (
+                db.query(Invoice)
+                .filter(Invoice.shop_id == current_shop_id(), Invoice.notes.like(f"%{marker}%"))
+                .first()
+            )
+            if existing:
+                return jsonify({
+                    "duplicate": True,
+                    "id": existing.id,
+                    "invoice_number": existing.invoice_number,
+                    "detail": "الفاتورة دي اترفعت قبل كده",
+                })
+            original_created_at = _parse_original_time(data.get("original_created_at"))
+            old_notes = (data.get("notes") or "").strip()
+            data["notes"] = f"{old_notes} | فاتورة اترفعت من الجهاز {marker}".strip(" |")
+
         now = datetime.datetime.now()
         prefix = "INV-S" if invoice_type == "sale" else "INV-B"
         code = f"{prefix}-{now.strftime('%y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
@@ -811,7 +833,8 @@ def invoices_handler():
             remaining_amount=remaining_amount,
             payment_method=data.get("payment_method", "cash"),
             notes=data.get("notes"),
-            items=db_items
+            items=db_items,
+            **({"created_at": original_created_at} if original_created_at else {}),
         )
 
         db.add(invoice)
@@ -862,6 +885,21 @@ def invoices_handler():
         db.close()
 
 PARTIAL_SALE_NOTE_RE = re.compile(r"مباع من رصيد #(\d+)")
+
+def _parse_original_time(value):
+    """تاريخ فاتورة اترفعت من الجهاز: نقبله لو في آخر 60 يوم ومش في المستقبل (يتخزن UTC)"""
+    if not value:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    now = datetime.datetime.utcnow()
+    if now - datetime.timedelta(days=60) <= dt <= now + datetime.timedelta(minutes=5):
+        return dt
+    return None
 
 _AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫،,", "01234567890123456789...")
 

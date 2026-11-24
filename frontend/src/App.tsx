@@ -14,6 +14,7 @@ import { AIScannerModal } from './components/AIScannerModal';
 import { PriceModal } from './components/PriceModal';
 import { ThermalReceipt } from './components/ThermalReceipt';
 import { QuickCalculator } from './components/QuickCalculator';
+import { PendingLocalInvoicesBanner } from './components/PendingLocalInvoicesBanner';
 import { LoginScreen } from './components/LoginScreen';
 import { MarketingLanding } from './components/MarketingLanding';
 
@@ -167,6 +168,9 @@ export const App: React.FC = () => {
           onLogout={handleLogout}
         />
       </div>
+
+      {/* فواتير اتحفظت على الجهاز بس وقت مشكلة الاتصال */}
+      <PendingLocalInvoicesBanner />
 
       {/* Main Content Area */}
       <main className="flex-1 no-print pb-16 lg:pb-6 overflow-x-hidden">
