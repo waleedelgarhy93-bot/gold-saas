@@ -312,18 +312,19 @@ export async function deleteStaffUser(userId: number): Promise<boolean> {
   }
 }
 
+// لو التحميل فشل نرمي خطأ واضح بدل ما نعرض محلات وهمية بأرقام مش حقيقية
 export async function fetchSubscriberShops(): Promise<SubscriberShop[]> {
+  let res: Response;
   try {
-    const res = await apiFetch(`${API_BASE}/admin/shops`);
-    if (res.ok) return await res.json();
+    res = await apiFetch(`${API_BASE}/admin/shops`);
   } catch (e) {
     console.warn('Backend fetchSubscriberShops offline:', e);
+    throw new Error('تعذر الاتصال بالسيرفر. تأكد من الإنترنت وحاول تاني');
   }
-  return [
-    { id: 1, name: 'مجوهرات الهدى', owner_name: 'أ/ طه رجب', phone: '01141034439 - 01226398474', address: 'شارع الصاغة، سمالوط، المنيا', subscription_plan: 'الباقة الماسية (سنوي)', is_active: true, total_invoices: 12, total_staff: 3, owner_username: 'admin', created_at: '2026-01-15' },
-    { id: 2, name: 'مجوهرات الزمرد والذهب', owner_name: 'حاج إبراهيم رضوان', phone: '01122334455', address: 'المنيا - شارع التجارة', subscription_plan: 'باقة البريميوم (شهري)', is_active: true, total_invoices: 45, total_staff: 4, owner_username: 'radwan_gold', created_at: '2026-02-10' },
-    { id: 3, name: 'صاغة النيل الجديدة', owner_name: 'كيرلس سمير', phone: '01299887766', address: 'أسيوط - الصاغة', subscription_plan: 'الباقة الماسية (سنوي)', is_active: true, total_invoices: 89, total_staff: 5, owner_username: 'nile_gold', created_at: '2026-03-01' },
-  ];
+  if (!res.ok) {
+    throw new Error(await readError(res, 'تعذر تحميل بيانات المحلات'));
+  }
+  return await res.json();
 }
 
 export async function adminUpdateShopAPI(shopId: number, data: {

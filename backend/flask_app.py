@@ -8,6 +8,7 @@ import uuid
 import datetime
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from sqlalchemy import func
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -51,6 +52,7 @@ def get_db():
 PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login", "/api/prices/live"}
 # مسارات مسموحة لحساب لازم يغيّر كلمة المرور قبل أي حاجة تانية
 MUST_CHANGE_ALLOWED = {"/api/user/password"}
+LAST_SEEN_EVERY_SECONDS = 5 * 60
 
 @app.before_request
 def require_auth():
@@ -73,6 +75,16 @@ def require_auth():
         g.user_id = user.id
         g.user_role = user.role
         g.user_shop_id = user.shop_id
+
+        # متابعة الاستخدام للوحة المشتركين: نحدّث "آخر نشاط" مرة كل 5 دقايق بالكتير
+        now = datetime.datetime.utcnow()
+        if not user.last_seen_at or (now - user.last_seen_at).total_seconds() > LAST_SEEN_EVERY_SECONDS:
+            try:
+                user.last_seen_at = now
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                print(f"[auth] last_seen update skipped: {exc}")
     finally:
         db.close()
 
@@ -157,7 +169,10 @@ def login():
         if not user or not user.is_active or not verify_password(user, raw_password):
             return jsonify({"success": False, "detail": "اسم المستخدم أو كلمة المرور غير صحيحة"}), 401
 
-        db.commit()  # يحفظ ترقية كلمة المرور القديمة لصيغة مشفرة
+        now = datetime.datetime.utcnow()
+        user.last_login_at = now
+        user.last_seen_at = now
+        db.commit()  # يحفظ ترقية كلمة المرور القديمة لصيغة مشفرة + وقت الدخول
         must_change = is_weak_password(raw_password)
         shop = db.query(Shop).filter(Shop.id == user.shop_id).first() if user.shop_id else None
         user_data = _user_json(user, shop)
@@ -324,11 +339,25 @@ def admin_shops():
     try:
         if request.method == "GET":
             shops = db.query(Shop).all()
+            now = datetime.datetime.utcnow()
+            utc_iso = lambda d: (d.isoformat() + "Z") if d else None  # كل الأوقات متخزنة UTC
             result = []
             for s in shops:
                 invoices_count = db.query(Invoice).filter(Invoice.shop_id == s.id).count()
                 users_count = db.query(User).filter(User.shop_id == s.id).count()
                 owner_user = db.query(User).filter(User.shop_id == s.id, User.role == "shop_admin").first()
+
+                # متابعة الاستخدام
+                last_invoice_at = db.query(func.max(Invoice.created_at)).filter(Invoice.shop_id == s.id).scalar()
+                inv_7d = db.query(Invoice).filter(
+                    Invoice.shop_id == s.id, Invoice.created_at >= now - datetime.timedelta(days=7)
+                ).count()
+                inv_30d = db.query(Invoice).filter(
+                    Invoice.shop_id == s.id, Invoice.created_at >= now - datetime.timedelta(days=30)
+                ).count()
+                last_login_at = db.query(func.max(User.last_login_at)).filter(User.shop_id == s.id).scalar()
+                last_seen_at = db.query(func.max(User.last_seen_at)).filter(User.shop_id == s.id).scalar()
+                last_activity = max([d for d in (last_seen_at, last_invoice_at) if d], default=None)
                 result.append({
                     "id": s.id,
                     "name": s.name,
@@ -342,7 +371,13 @@ def admin_shops():
                     "total_invoices": invoices_count,
                     "total_staff": users_count,
                     "owner_username": owner_user.username if owner_user else "admin",
-                    "created_at": s.created_at.isoformat() if s.created_at else None
+                    "created_at": s.created_at.isoformat() if s.created_at else None,
+                    "last_invoice_at": utc_iso(last_invoice_at),
+                    "last_login_at": utc_iso(last_login_at),
+                    "last_seen_at": utc_iso(last_seen_at),
+                    "last_activity_at": utc_iso(last_activity),
+                    "invoices_7d": inv_7d,
+                    "invoices_30d": inv_30d,
                 })
             return jsonify(result)
 

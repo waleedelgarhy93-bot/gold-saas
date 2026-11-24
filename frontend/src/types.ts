@@ -222,6 +222,13 @@ export interface SubscriberShop {
   total_staff: number;
   owner_username?: string;
   created_at: string;
+  // متابعة الاستخدام
+  last_invoice_at?: string | null;
+  last_login_at?: string | null;
+  last_seen_at?: string | null;
+  last_activity_at?: string | null;
+  invoices_7d?: number;
+  invoices_30d?: number;
 }
 
 export interface AuditReportData {

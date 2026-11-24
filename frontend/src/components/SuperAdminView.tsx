@@ -3,9 +3,47 @@ import type { SubscriberShop } from '../types';
 import { fetchSubscriberShops, adminUpdateShopAPI, adminCreateShopAPI } from '../api';
 import { Shield, Store, Users, Receipt, CheckCircle2, Building2, Plus, Edit3, Key, X, Save } from 'lucide-react';
 
+// ---------- متابعة استخدام المحلات ----------
+function timeAgo(iso?: string | null): string {
+  if (!iso) return 'لم يحدث بعد';
+  const diffMin = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (diffMin < 2) return 'الآن';
+  if (diffMin < 60) return `منذ ${diffMin} دقيقة`;
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return h === 1 ? 'منذ ساعة' : h === 2 ? 'منذ ساعتين' : `منذ ${h} ساعات`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'امبارح';
+  if (d === 2) return 'منذ يومين';
+  if (d <= 10) return `منذ ${d} أيام`;
+  return `منذ ${d} يوم`;
+}
+
+function fullDate(iso?: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+type UsageLevel = 'active' | 'low' | 'stopped' | 'never';
+
+function usageLevel(shop: SubscriberShop): UsageLevel {
+  if (!shop.last_activity_at) return 'never';
+  const days = (Date.now() - new Date(shop.last_activity_at).getTime()) / 86400000;
+  if (days <= 2) return 'active';
+  if (days <= 7) return 'low';
+  return 'stopped';
+}
+
+const USAGE_BADGE: Record<UsageLevel, { label: string; cls: string }> = {
+  active: { label: '🟢 نشط', cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40' },
+  low: { label: '🟡 استخدام قليل', cls: 'bg-amber-500/10 text-amber-300 border-amber-500/40' },
+  stopped: { label: '🔴 متوقف', cls: 'bg-rose-500/10 text-rose-300 border-rose-500/40' },
+  never: { label: '⚪ لم يستخدم بعد', cls: 'bg-slate-500/10 text-slate-300 border-slate-500/40' },
+};
+
 export const SuperAdminView: React.FC = () => {
   const [shops, setShops] = useState<SubscriberShop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Edit / Manage Subscription Modal
   const [editingShop, setEditingShop] = useState<SubscriberShop | null>(null);
@@ -31,10 +69,14 @@ export const SuperAdminView: React.FC = () => {
 
   const loadData = () => {
     setLoading(true);
-    fetchSubscriberShops().then((data) => {
-      setShops(data);
-      setLoading(false);
-    });
+    setLoadError(null);
+    fetchSubscriberShops()
+      .then((data) => setShops(data))
+      .catch((e: unknown) => {
+        setShops([]);
+        setLoadError(e instanceof Error ? e.message : 'تعذر تحميل بيانات المحلات');
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -105,6 +147,10 @@ export const SuperAdminView: React.FC = () => {
 
   const totalInvoices = shops.reduce((acc, s) => acc + s.total_invoices, 0);
   const totalStaff = shops.reduce((acc, s) => acc + s.total_staff, 0);
+  const activeThisWeek = shops.filter((s) => {
+    const lvl = usageLevel(s);
+    return lvl === 'active' || lvl === 'low';
+  }).length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -144,7 +190,7 @@ export const SuperAdminView: React.FC = () => {
             <Store className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-2xl font-black font-mono text-slate-100">{shops.length} محلات</div>
-          <p className="text-[10px] text-emerald-400">جميع الاشتراكات مفعلة</p>
+          <p className="text-[10px] text-emerald-400">{activeThisWeek} منهم استخدموا البرنامج آخر 7 أيام</p>
         </div>
 
         <div className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-1">
@@ -177,6 +223,16 @@ export const SuperAdminView: React.FC = () => {
 
         {loading ? (
           <div className="py-16 text-center text-slate-400 text-xs">جاري تحميل بيانات المنصة...</div>
+        ) : loadError ? (
+          <div className="py-12 text-center space-y-3">
+            <p className="text-rose-300 text-sm">⚠️ {loadError}</p>
+            <button
+              onClick={loadData}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-2 rounded-xl text-xs cursor-pointer"
+            >
+              حاول تاني
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-right text-xs">
@@ -188,6 +244,7 @@ export const SuperAdminView: React.FC = () => {
                   <th className="p-4">رقم الهاتف</th>
                   <th className="p-4">باقة الاشتراك</th>
                   <th className="p-4">الفواتير</th>
+                  <th className="p-4">آخر استخدام</th>
                   <th className="p-4">حالة الحساب</th>
                   <th className="p-4 text-center">إدارة وتعديل</th>
                 </tr>
@@ -204,7 +261,30 @@ export const SuperAdminView: React.FC = () => {
                         {shop.subscription_plan}
                       </span>
                     </td>
-                    <td className="p-4 text-slate-200 font-bold">{shop.total_invoices}</td>
+                    <td className="p-4 font-sans whitespace-nowrap">
+                      <div className="text-slate-100 font-bold font-mono text-sm">{shop.total_invoices}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        آخر 7 أيام: <span className="font-mono text-slate-200">{shop.invoices_7d ?? 0}</span>
+                        {' · '}
+                        آخر 30 يوم: <span className="font-mono text-slate-200">{shop.invoices_30d ?? 0}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 font-sans whitespace-nowrap">
+                      {(() => {
+                        const badge = USAGE_BADGE[usageLevel(shop)];
+                        return (
+                          <span className={`inline-block border px-2.5 py-0.5 rounded-full text-[11px] ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
+                      <div className="text-[10px] text-slate-400 mt-1" title={fullDate(shop.last_login_at)}>
+                        آخر دخول: <span className="text-slate-200">{timeAgo(shop.last_login_at)}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400" title={fullDate(shop.last_invoice_at)}>
+                        آخر فاتورة: <span className="text-slate-200">{timeAgo(shop.last_invoice_at)}</span>
+                      </div>
+                    </td>
                     <td className="p-4">
                       {shop.is_active ? (
                         <span className="inline-flex items-center gap-1 text-emerald-400 font-sans text-xs">

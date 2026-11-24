@@ -68,6 +68,8 @@ class User(Base):
     pin_code = Column(String(6), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True)  # آخر تسجيل دخول
+    last_seen_at = Column(DateTime, nullable=True)   # آخر استخدام للتطبيق (بيتحدث كل 5 دقايق بالكتير)
 
     shop = relationship("Shop", back_populates="users")
 
@@ -285,11 +287,25 @@ def _migrate_existing_sqlite():
     except Exception as exc:
         print(f"[db] migration failed: {exc}")
 
+def _add_missing_user_columns():
+    """يضيف أعمدة المتابعة لجدول المستخدمين في أي قاعدة (SQLite أو PostgreSQL) بدون فقدان بيانات"""
+    from sqlalchemy import inspect
+    try:
+        existing = {c["name"] for c in inspect(engine).get_columns("users")}
+        col_type = "DATETIME" if engine.dialect.name == "sqlite" else "TIMESTAMP"
+        with engine.begin() as conn:
+            for col in ("last_login_at", "last_seen_at"):
+                if col not in existing:
+                    _try_sql(conn, f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+    except Exception as exc:
+        print(f"[db] user activity columns migration failed: {exc}")
+
 def init_db():
     last_exc = None
     for attempt in range(4):
         try:
             Base.metadata.create_all(bind=engine)
+            _add_missing_user_columns()
             if engine.dialect.name == 'sqlite':
                 _migrate_existing_sqlite()
             _seed_defaults()
