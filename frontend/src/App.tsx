@@ -34,7 +34,10 @@ export const App: React.FC = () => {
   });
   const [shopInfo, setShopInfo] = useState<ShopInfo | null>(null);
   const [prices, setPrices] = useState<GoldPrices>(defaultPrices);
-  const [activeTab, setActiveTab] = useState<AppTab>('pos');
+  // السوبر أدمن بيفتح دايماً على لوحة المنصة (حتى بعد الريفرش)
+  const [activeTab, setActiveTab] = useState<AppTab>(() =>
+    currentUser?.role === 'super_admin' ? 'superadmin' : 'pos'
+  );
   
   // Modals state
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -55,13 +58,15 @@ export const App: React.FC = () => {
   }, [currentUser, activeTab]);
 
   useEffect(() => {
+    // قبل الدخول، أو للسوبر أدمن: مفيش محل نحمّل أسعاره أو بياناته
+    if (!currentUser || currentUser.role === 'super_admin') return;
     fetchGoldPrices().then(setPrices);
-    if (currentUser?.shop_id) {
+    if (currentUser.shop_id) {
       fetchShopInfo(currentUser.shop_id).then(setShopInfo);
     } else {
       fetchShopInfo().then(setShopInfo);
     }
-  }, [currentUser?.shop_id]);
+  }, [currentUser?.shop_id, currentUser?.role]);
 
   const handleLoginSuccess = (user: User) => {
     setCurrentUser(user);
@@ -121,6 +126,26 @@ export const App: React.FC = () => {
   }
 
   const currentShopName = shopInfo?.name || currentUser.shop_name || 'محل الذهب والمجوهرات';
+
+  // صاحب المنصة: لوحة المنصة بس، من غير شاشات المحل
+  if (currentUser.role === 'super_admin') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+        <Navbar
+          prices={prices}
+          currentUser={currentUser}
+          shopName={currentShopName}
+          activeTab="superadmin"
+          setActiveTab={() => {}}
+          onOpenPriceModal={() => {}}
+          onLogout={handleLogout}
+        />
+        <main className="flex-1 pb-6 overflow-x-hidden">
+          <SuperAdminView />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
@@ -200,10 +225,6 @@ export const App: React.FC = () => {
               }
             }}
           />
-        )}
-
-        {activeTab === 'superadmin' && currentUser.role === 'super_admin' && (
-          <SuperAdminView />
         )}
       </main>
 

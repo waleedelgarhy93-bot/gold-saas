@@ -38,6 +38,42 @@ export const Navbar: React.FC<NavbarProps> = ({
     setMobileMenuOpen(false);
   };
 
+  // السوبر أدمن صاحب المنصة مش صاحب محل: مالوش شاشة بيع ولا مخزن ولا أسعار ذهب
+  if (isSuperAdmin) {
+    return (
+      <header className="bg-slate-900 border-b border-indigo-900/40 sticky top-0 z-40 shadow-xl w-full">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-14 sm:h-16 gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-300 shrink-0">
+                <Shield className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <div className="min-w-0">
+                <span className="block text-sm sm:text-lg font-bold text-slate-100 truncate">منصة الصاغة السحابية</span>
+                <span className="block text-[10px] sm:text-xs text-indigo-300 truncate">لوحة صاحب المنصة</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <div className="hidden sm:flex flex-col text-left">
+                <span className="text-xs font-bold text-slate-200">{currentUser.name}</span>
+                <span className="text-[10px] font-medium text-indigo-400">سوبر أدمن</span>
+              </div>
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-1 bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/30 px-2.5 py-1.5 rounded-xl text-xs transition cursor-pointer"
+                title="تسجيل الخروج"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>خروج</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
   return (
     <header className="bg-slate-900 border-b border-amber-900/40 sticky top-0 z-40 shadow-xl w-full">
       {/* Top Banner: Live Gold Rates Bar (Smooth horizontal scroll on mobile without breaking layout) */}

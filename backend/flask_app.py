@@ -53,6 +53,8 @@ PUBLIC_PATHS = {"/", "/api/health", "/api/auth/login", "/api/prices/live"}
 # مسارات مسموحة لحساب لازم يغيّر كلمة المرور قبل أي حاجة تانية
 MUST_CHANGE_ALLOWED = {"/api/user/password"}
 LAST_SEEN_EVERY_SECONDS = 5 * 60
+# المسارات المسموحة للسوبر أدمن: إدارة المنصة وحسابه هو بس
+SUPER_ADMIN_PATHS = ("/api/admin/", "/api/user/password", "/api/user/credentials")
 
 @app.before_request
 def require_auth():
@@ -90,6 +92,10 @@ def require_auth():
 
     if payload.get("mc") and request.path not in MUST_CHANGE_ALLOWED:
         return forbidden("لازم تغيّر كلمة المرور الأول")
+
+    # صاحب المنصة مش صاحب محل: ما يفتحش ولا يعدّل بيانات أي محل (فواتير، مخزن، أسعار، خزينة...)
+    if g.user_role == "super_admin" and not request.path.startswith(SUPER_ADMIN_PATHS):
+        return forbidden("حساب السوبر أدمن لإدارة المنصة بس، مش لشاشات المحل")
     return None
 
 def _requested_shop_id():
